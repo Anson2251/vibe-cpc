@@ -939,7 +939,7 @@ export class Evaluator {
     const args = await Promise.all(node.arguments.map(arg => this.evaluate(arg)));
     
     // Create a new environment for the routine
-    const routineEnvironment = this.environment.enterScope();
+    const routineEnvironment = this.environment.createChild();
     
     // Set up parameters
     for (let i = 0; i < signature.parameters.length; i++) {
@@ -969,9 +969,11 @@ export class Evaluator {
       returnAddress
     });
     
-    // Swap contexts
+    // Swap contexts and environments
     const previousContext = this.context;
+    const previousEnvironment = this.environment;
     this.context = routineContext;
+    this.environment = routineEnvironment;
     
     // Execute the routine
     let result: any;
@@ -1007,8 +1009,9 @@ export class Evaluator {
       }
     }
     
-    // Restore context
+    // Restore context and environment
     this.context = previousContext;
+    this.environment = previousEnvironment;
     
     // Pop call frame
     this.context.popCallFrame();

@@ -1,0 +1,24 @@
+// Test file to verify that function scope isolation is working correctly
+
+DECLARE globalVar : INTEGER
+globalVar <- 100
+
+PROCEDURE TestScope()
+    DECLARE localVar : INTEGER
+    localVar <- 42
+    OUTPUT "Inside function: localVar = "
+    OUTPUT localVar
+    OUTPUT "Inside function: globalVar = "
+    OUTPUT globalVar
+ENDPROCEDURE
+
+// Call the procedure
+CALL TestScope()
+
+// Try to access localVar outside the function - this should cause an error
+OUTPUT "Outside function: globalVar = "
+OUTPUT globalVar
+
+// This line should cause a runtime error because localVar is not in scope
+OUTPUT "Outside function: localVar = "
+OUTPUT localVar
