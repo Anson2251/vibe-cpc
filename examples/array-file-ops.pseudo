@@ -1,0 +1,47 @@
+// Array and File Operations Program
+// This program demonstrates array manipulation and file I/O operations
+
+DECLARE numbers : ARRAY[1:10] OF INTEGER
+DECLARE sum : INTEGER
+DECLARE average : REAL
+DECLARE counter : INTEGER
+DECLARE fileHandle : INTEGER
+
+// Initialize array with values
+FOR counter <- 1 TO 10
+  numbers[counter] <- counter * 2
+NEXT counter
+
+// Calculate sum of array elements
+sum <- 0
+FOR counter <- 1 TO 10
+  sum <- sum + numbers[counter]
+NEXT counter
+
+// Calculate average
+average <- sum / 10
+
+// Output results
+OUTPUT "Array elements: "
+FOR counter <- 1 TO 10
+  OUTPUT numbers[counter]
+NEXT counter
+
+OUTPUT "Sum: "
+OUTPUT sum
+OUTPUT "Average: "
+OUTPUT average
+
+// Write results to a file
+OPENFILE fileHandle FOR WRITE "results.txt"
+WRITEFILE fileHandle, "Array elements: "
+FOR counter <- 1 TO 10
+  WRITEFILE fileHandle, numbers[counter]
+NEXT counter
+WRITEFILE fileHandle, "Sum: "
+WRITEFILE fileHandle, sum
+WRITEFILE fileHandle, "Average: "
+WRITEFILE fileHandle, average
+CLOSEFILE fileHandle
+
+OUTPUT "Results have been written to results.txt"

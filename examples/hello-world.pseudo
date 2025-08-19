@@ -1,0 +1,6 @@
+// Hello World Program
+// This is a simple program that outputs "Hello, World!"
+
+DECLARE message : STRING
+message <- "Hello, World!"
+OUTPUT message

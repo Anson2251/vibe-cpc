@@ -1,0 +1,28 @@
+DECLARE x : INTEGER
+DECLARE y : INTEGER
+DECLARE z : BOOLEAN
+
+x <- 10
+y <- 20
+
+// Test IF with AND
+IF x > 5 AND y > 15 THEN
+    OUTPUT "Both conditions are true"
+ENDIF
+
+// Test IF with OR
+IF x > 15 OR y > 15 THEN
+    OUTPUT "At least one condition is true"
+ENDIF
+
+// Test IF with both AND and OR
+IF x > 5 AND (y > 15 OR y < 25) THEN
+    OUTPUT "Complex condition is true"
+ENDIF
+
+// Test nested IF with AND/OR
+IF x > 5 THEN
+    IF y > 15 AND z = TRUE THEN
+        OUTPUT "Nested conditions are true"
+    ENDIF
+ENDIF

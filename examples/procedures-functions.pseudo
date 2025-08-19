@@ -1,0 +1,69 @@
+// Procedures and Functions Program
+// This program demonstrates the use of procedures and functions
+
+// Function to calculate the maximum of two numbers
+FUNCTION Max(a : INTEGER, b : INTEGER) RETURNS INTEGER
+  IF a > b THEN
+    RETURN a
+  ELSE
+    RETURN b
+  ENDIF
+ENDFUNCTION
+
+// Procedure to display a welcome message
+PROCEDURE DisplayWelcome(name : STRING)
+  OUTPUT "Welcome, "
+  OUTPUT name
+  OUTPUT "!"
+ENDPROCEDURE
+
+// Function to calculate the sum of an array
+FUNCTION ArraySum(arr : ARRAY[1:5] OF INTEGER) RETURNS INTEGER
+  DECLARE sum : INTEGER
+  DECLARE i : INTEGER
+  
+  sum <- 0
+  FOR i <- 1 TO 5
+    sum <- sum + arr[i]
+  NEXT i
+  
+  RETURN sum
+ENDFUNCTION
+
+// Main program
+DECLARE num1 : INTEGER
+DECLARE num2 : INTEGER
+DECLARE result : INTEGER
+DECLARE numbers : ARRAY[1:5] OF INTEGER
+DECLARE userName : STRING
+
+// Get user input
+OUTPUT "Enter your name: "
+INPUT userName
+CALL DisplayWelcome(userName)
+
+OUTPUT "Enter first number: "
+INPUT num1
+OUTPUT "Enter second number: "
+INPUT num2
+
+// Use the Max function
+result <- Max(num1, num2)
+OUTPUT "The maximum of "
+OUTPUT num1
+OUTPUT " and "
+OUTPUT num2
+OUTPUT " is "
+OUTPUT result
+
+// Initialize array
+numbers[1] <- 10
+numbers[2] <- 20
+numbers[3] <- 30
+numbers[4] <- 40
+numbers[5] <- 50
+
+// Use the ArraySum function
+result <- ArraySum(numbers)
+OUTPUT "The sum of the array elements is: "
+OUTPUT result

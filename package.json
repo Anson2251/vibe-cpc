@@ -1,0 +1,36 @@
+{
+  "name": "caie-pseudocode-interpreter",
+  "version": "1.0.0",
+  "description": "A TypeScript interpreter for the CAIE pseudocode language",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "caie-pseudocode": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "echo \"Linting not configured yet\"",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "caie",
+    "pseudocode",
+    "interpreter",
+    "typescript",
+    "compiler"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.9"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

@@ -1,0 +1,5 @@
+PROCEDURE test()                                          14:18:39
+    OUTPUT "Hello, world"
+ENDPROCEDURE
+
+CALL test()
