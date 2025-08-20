@@ -1,6 +1,6 @@
 /**
  * CAIE Pseudocode Interpreter - Main Interpreter Class
- * 
+ *
  * This module implements the main interpreter class that coordinates
  * the lexer, parser, and evaluator to execute pseudocode programs.
  */
@@ -12,6 +12,12 @@ import { Environment, ExecutionContext } from './runtime/environment';
 import { IOInterface } from './io/io-interface';
 import { ProgramNode } from './parser/ast-nodes';
 import { PseudocodeError, ErrorHandler } from './errors';
+
+function unescapeString(str: string) {
+  return str.replace(/\\([nrtbf'"\\])/g, (_, char) =>
+    ({n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', '"': '"', "'": "'", '\\': '\\'} as any)[char]
+  );
+}
 
 /**
  * Interpreter options
@@ -56,59 +62,71 @@ export class Interpreter {
   /**
    * Execute a pseudocode program from source code
    */
+/**
+ * Executes the provided source code and returns the execution result
+ * @param sourceCode - The pseudocode to be executed
+ * @returns A Promise that resolves to an ExecutionResult object
+ */
   async execute(sourceCode: string): Promise<ExecutionResult> {
-    const startTime = Date.now();
-    this.executionSteps = 0;
+	// Unescape any escaped characters in the source code
+	sourceCode = unescapeString(sourceCode);
+    const startTime = Date.now();    // Record the start time for execution metrics
+    this.executionSteps = 0;        // Reset execution step counter
 
+    // Remove comments and empty lines from the source code
     sourceCode = sourceCode
         .trim()
         .split('\n')
-        .filter(line => line.trim().startsWith('//') === false && !!line.trim())
+        .filter(line => line.trim().startsWith('//') === false && !!line.trim())  // Filter out comment lines and empty lines
         .join('\n');
 
     try {
-      // Step 1: Lexical analysis
+      // Step 1: Lexical analysis - Convert source code into tokens
       if (this.options.debug) {
         this.io.output("Lexical analysis...\n");
       }
-      
+
       const lexer = new Lexer(sourceCode);
       const tokens = lexer.tokenize();
-      
+
       if (this.options.debug) {
         this.io.output(`Tokens: ${tokens.length}\n`);
         this.io.output(`Tokens: \n${tokens.map(token => token.toString()).join('\n')}\n`);
       }
 
-      // Step 2: Parsing
+      // Step 2: Parsing - Convert tokens into Abstract Syntax Tree (AST)
       if (this.options.debug) {
         this.io.output("Parsing...\n");
       }
-      
+
       const parser = new Parser(tokens);
       const ast = parser.parse();
-      
+
       if (this.options.debug) {
         this.io.output(`AST: ${JSON.stringify(ast, null, 2)}\n`);
       }
 
-      // Step 3: Evaluation
+      // Step 3: Evaluation - Execute the AST
       if (this.options.debug) {
         this.io.output("Evaluating...\n");
       }
-      
+
+      // Set up execution environment
       const environment = new Environment();
       const context = new ExecutionContext(environment);
       const evaluator = new Evaluator(this.io);
-      
+
       // Override the evaluator's context with our own
       (evaluator as any).context = context;
-      
+
+      // Evaluate the program and get the result
       const result = await evaluator.evaluateProgram(ast);
-      
+
+      // Calculate execution time
       const endTime = Date.now();
       const executionTime = endTime - startTime;
-      
+
+      // Return successful execution result
       return {
         success: true,
         output: result !== undefined ? String(result) : undefined,
@@ -116,11 +134,13 @@ export class Interpreter {
         steps: this.executionSteps
       };
     } catch (error) {
+      // Calculate execution time in case of error
       const endTime = Date.now();
       const executionTime = endTime - startTime;
-      
+
       let pseudocodeError: PseudocodeError;
-      
+
+      // Handle different types of errors
       if (error instanceof PseudocodeError) {
         pseudocodeError = error;
       } else {
@@ -129,14 +149,14 @@ export class Interpreter {
           error instanceof Error ? error.message : String(error)
         );
       }
-      
+
       // Report the error
       this.errorHandler.error(
         pseudocodeError.message,
         pseudocodeError.line,
         pseudocodeError.column
       );
-      
+
       return {
         success: false,
         error: pseudocodeError,
@@ -155,9 +175,9 @@ export class Interpreter {
       return await this.execute(sourceCode);
     } catch (error) {
       const endTime = Date.now();
-      
+
       let pseudocodeError: PseudocodeError;
-      
+
       if (error instanceof PseudocodeError) {
         pseudocodeError = error;
       } else {
@@ -166,14 +186,14 @@ export class Interpreter {
           error instanceof Error ? error.message : String(error)
         );
       }
-      
+
       // Report the error
       this.errorHandler.error(
         pseudocodeError.message,
         pseudocodeError.line,
         pseudocodeError.column
       );
-      
+
       return {
         success: false,
         error: pseudocodeError,
@@ -196,7 +216,7 @@ export class Interpreter {
       if (error instanceof PseudocodeError) {
         throw error;
       }
-      
+
       throw new PseudocodeError(
         error instanceof Error ? error.message : String(error)
       );
@@ -222,7 +242,7 @@ export class Interpreter {
    */
   incrementExecutionSteps(): void {
     this.executionSteps++;
-    
+
     if (
       this.options.maxExecutionSteps !== undefined &&
       this.executionSteps > this.options.maxExecutionSteps

@@ -4,3 +4,4 @@
 DECLARE message : STRING
 message <- "Hello, World!"
 OUTPUT message
+OUTPUT LEN(message)

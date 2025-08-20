@@ -8,7 +8,7 @@
 export { Interpreter, InterpreterOptions, ExecutionResult } from './interpreter';
 
 // CLI module
-export { CLIInterface, CLIOptions, NodeCLIAdapter, runCLI, main } from './cli';
+export { CLIInterface, CLIOptions, NodeCLIAdapter, runCLI, main } from './cli/node-index';
 
 // IO Interface
 export { IOInterface } from './io/io-interface';
@@ -82,7 +82,7 @@ export {
   ParameterNode,
   ArrayTypeNode,
   EOFNode,
-  
+
   // Visitor pattern
   ASTVisitor,
   BaseASTVisitor

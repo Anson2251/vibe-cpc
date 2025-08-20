@@ -8,8 +8,7 @@
     "caie-pseudocode": "dist/cli/index.js"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm clean; node build-cli.cjs --target node",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "echo \"Linting not configured yet\"",
     "clean": "rm -rf dist"
