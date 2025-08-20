@@ -1,26 +1,26 @@
 import { TestRunner, expectOutput, expectError } from '../test-helpers';
 
 describe('Interpreter Integration Tests', () => {
-  let testRunner: TestRunner;
+	let testRunner: TestRunner;
 
-  beforeEach(() => {
-    testRunner = new TestRunner();
-  });
+	beforeEach(() => {
+		testRunner = new TestRunner();
+	});
 
-  describe('Basic programs', () => {
-    test('should execute hello world program', async () => {
-      const code = `
+	describe('Basic programs', () => {
+		test('should execute hello world program', async () => {
+			const code = `
         DECLARE message : STRING
         message <- "Hello, World!"
         OUTPUT message
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, 'Hello, World!');
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Hello, World!');
+		});
 
-    test('should execute arithmetic operations', async () => {
-      const code = `
+		test('should execute arithmetic operations', async () => {
+			const code = `
         DECLARE a : INTEGER
         DECLARE b : INTEGER
         DECLARE result : INTEGER
@@ -38,12 +38,12 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT result
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['15', '5', '50', '2', '0']);
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['15', '5', '50', '2', '0']);
+		});
 
-    test('should handle real number arithmetic', async () => {
-      const code = `
+		test('should handle real number arithmetic', async () => {
+			const code = `
         DECLARE x : REAL
         DECLARE y : REAL
         x <- 3.1
@@ -54,12 +54,12 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT x / y
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['5.1', '1.1', '6.2', '1.55']);
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['5.1', '1.1', '6.2', '1.55']);
+		});
 
-    test('should handle string operations', async () => {
-      const code = `
+		test('should handle string operations', async () => {
+			const code = `
         DECLARE str1 : STRING
         DECLARE str2 : STRING
         DECLARE result : STRING
@@ -70,14 +70,14 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT LENGTH(result)
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['Hello World', '11']);
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['Hello World', '11']);
+		});
+	});
 
-  describe('Control structures', () => {
-    test('should execute IF statement', async () => {
-      const code = `
+	describe('Control structures', () => {
+		test('should execute IF statement', async () => {
+			const code = `
         DECLARE x : INTEGER
         x <- 10
         IF x > 5 THEN
@@ -87,12 +87,12 @@ describe('Interpreter Integration Tests', () => {
         ENDIF
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, 'Greater than 5');
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Greater than 5');
+		});
 
-    test('should execute nested IF statements', async () => {
-      const code = `
+		test('should execute nested IF statements', async () => {
+			const code = `
         DECLARE x : INTEGER
         DECLARE y : INTEGER
         x <- 10
@@ -108,12 +108,12 @@ describe('Interpreter Integration Tests', () => {
         ENDIF
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, 'Both conditions true');
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Both conditions true');
+		});
 
-    test('should execute CASE statement', async () => {
-      const code = `
+		test('should execute CASE statement', async () => {
+			const code = `
         DECLARE grade : CHAR
         grade <- 'B'
         CASE OF grade
@@ -124,38 +124,38 @@ describe('Interpreter Integration Tests', () => {
         ENDCASE
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, 'Good');
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Good');
+		});
+	});
 
-  describe('Loops', () => {
-    test('should execute FOR loop', async () => {
-      const code = `
+	describe('Loops', () => {
+		test('should execute FOR loop', async () => {
+			const code = `
         DECLARE i : INTEGER
         FOR i <- 1 TO 5
           OUTPUT i
         NEXT i
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['1', '2', '3', '4', '5']);
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['1', '2', '3', '4', '5']);
+		});
 
-    test('should execute FOR loop with STEP', async () => {
-      const code = `
+		test('should execute FOR loop with STEP', async () => {
+			const code = `
         DECLARE i : INTEGER
         FOR i <- 1 TO 10 STEP 2
           OUTPUT i
         NEXT i
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['1', '3', '5', '7', '9']);
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['1', '3', '5', '7', '9']);
+		});
 
-    test('should execute WHILE loop', async () => {
-      const code = `
+		test('should execute WHILE loop', async () => {
+			const code = `
         DECLARE i : INTEGER
         i <- 1
         WHILE i <= 5
@@ -164,12 +164,12 @@ describe('Interpreter Integration Tests', () => {
         ENDWHILE
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['1', '2', '3', '4', '5']);
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['1', '2', '3', '4', '5']);
+		});
 
-    test('should execute REPEAT loop', async () => {
-      const code = `
+		test('should execute REPEAT loop', async () => {
+			const code = `
         DECLARE i : INTEGER
         i <- 1
         REPEAT
@@ -178,14 +178,14 @@ describe('Interpreter Integration Tests', () => {
         UNTIL i > 5
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['1', '2', '3', '4', '5']);
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['1', '2', '3', '4', '5']);
+		});
+	});
 
-  describe('Procedures and functions', () => {
-    test('should execute procedure call', async () => {
-      const code = `
+	describe('Procedures and functions', () => {
+		test('should execute procedure call', async () => {
+			const code = `
         PROCEDURE PrintMessage()
           OUTPUT "Hello from procedure"
         ENDPROCEDURE
@@ -193,12 +193,12 @@ describe('Interpreter Integration Tests', () => {
         CALL PrintMessage()
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, 'Hello from procedure');
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Hello from procedure');
+		});
 
-    test('should execute procedure with parameters', async () => {
-      const code = `
+		test('should execute procedure with parameters', async () => {
+			const code = `
         PROCEDURE AddNumbers(x : INTEGER, y : INTEGER)
           OUTPUT x + y
         ENDPROCEDURE
@@ -206,12 +206,12 @@ describe('Interpreter Integration Tests', () => {
         CALL AddNumbers(10, 20)
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, '30');
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, '30');
+		});
 
-    test('should execute function call', async () => {
-      const code = `
+		test('should execute function call', async () => {
+			const code = `
         FUNCTION Add(x : INTEGER, y : INTEGER) RETURNS INTEGER
           RETURN x + y
         ENDFUNCTION
@@ -221,12 +221,12 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT result
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, '40');
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, '40');
+		});
 
-    test('should handle recursive function', async () => {
-      const code = `
+		test('should handle recursive function', async () => {
+			const code = `
         FUNCTION Factorial(n : INTEGER) RETURNS INTEGER
           IF n <= 1 THEN
             RETURN 1
@@ -238,14 +238,14 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT Factorial(5)
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, '120');
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, '120');
+		});
+	});
 
-  describe('Arrays', () => {
-    test('should handle array declarations and access', async () => {
-      const code = `
+	describe('Arrays', () => {
+		test('should handle array declarations and access', async () => {
+			const code = `
         DECLARE numbers : ARRAY[1:5] OF INTEGER
         DECLARE i : INTEGER
         FOR i <- 1 TO 5
@@ -256,12 +256,12 @@ describe('Interpreter Integration Tests', () => {
         NEXT i
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['10', '20', '30', '40', '50']);
-    });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['10', '20', '30', '40', '50']);
+		});
 
-    test('should handle two-dimensional arrays', async () => {
-      const code = `
+		test('should handle two-dimensional arrays', async () => {
+			const code = `
         DECLARE matrix : ARRAY[1:2, 1:2] OF INTEGER
         matrix[1, 1] <- 1
         matrix[1, 2] <- 2
@@ -273,14 +273,14 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT matrix[2, 2]
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, ['1', '2', '3', '4']);
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['1', '2', '3', '4']);
+		});
+	});
 
-  describe('File operations', () => {
-    test('should handle file writing and reading', async () => {
-      const code = `
+	describe('File operations', () => {
+		test('should handle file writing and reading', async () => {
+			const code = `
         DECLARE line : STRING
         OPENFILE "test.txt" FOR WRITE
         WRITEFILE "test.txt", "Hello, file!"
@@ -292,14 +292,14 @@ describe('Interpreter Integration Tests', () => {
         CLOSEFILE "test.txt"
       `;
 
-      const result = await testRunner.runCode(code);
-      expectOutput(result, 'Hello, file!');
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Hello, file!');
+		});
+	});
 
-  describe('Error handling', () => {
-    test('should handle division by zero', async () => {
-      const code = `
+	describe('Error handling', () => {
+		test('should handle division by zero', async () => {
+			const code = `
         DECLARE x : INTEGER
         DECLARE y : INTEGER
         DECLARE result : INTEGER
@@ -309,21 +309,21 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT result
       `;
 
-      const result = await testRunner.runCode(code);
-      expectError(result, 'division by zero');
-    });
+			const result = await testRunner.runCode(code);
+			expectError(result, 'division by zero');
+		});
 
-    test('should handle undefined variables', async () => {
-      const code = `
+		test('should handle undefined variables', async () => {
+			const code = `
         OUTPUT undefinedVariable
       `;
 
-      const result = await testRunner.runCode(code);
-      expectError(result, 'undefined');
-    });
+			const result = await testRunner.runCode(code);
+			expectError(result, 'undefined');
+		});
 
-    test('should handle type mismatches', async () => {
-      const code = `
+		test('should handle type mismatches', async () => {
+			const code = `
         DECLARE x : INTEGER
         DECLARE y : STRING
         x <- 10
@@ -331,8 +331,8 @@ describe('Interpreter Integration Tests', () => {
         OUTPUT x + y
       `;
 
-      const result = await testRunner.runCode(code);
-      expectError(result, 'type');
-    });
-  });
+			const result = await testRunner.runCode(code);
+			expectError(result, 'type');
+		});
+	});
 });

@@ -9,12 +9,12 @@ Options:
   -h, --help               Prints this message.
 `.trim();
 
-if(argv.length < 3) {
+if (argv.length < 3) {
     console.log(helpMsg);
     process.exit(0);
 }
 
-if(argv.includes("--help") || argv.includes("-h")) {
+if (argv.includes("--help") || argv.includes("-h")) {
     console.log(helpMsg);
     process.exit(0);
 }
