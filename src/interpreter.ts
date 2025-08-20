@@ -78,7 +78,8 @@ export class Interpreter {
         .trim()
         .split('\n')
         .filter(line => line.trim().startsWith('//') === false && !!line.trim())  // Filter out comment lines and empty lines
-        .join('\n');
+        .join('\n')
+		.trim();
 
     try {
       // Step 1: Lexical analysis - Convert source code into tokens

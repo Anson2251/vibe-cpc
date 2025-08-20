@@ -167,7 +167,9 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
 	'FALSE': TokenType.FALSE,
 	'AND': TokenType.AND,
 	'OR': TokenType.OR,
-	'NOT': TokenType.NOT
+	'NOT': TokenType.NOT,
+	'DIV': TokenType.DIV,
+	'MOD': TokenType.MOD,
 };
 
 /**

@@ -9,7 +9,6 @@ import { CLIInterface, CLIOptions } from './cli-interface';
 import { Interpreter, InterpreterOptions, ExecutionResult } from '../interpreter';
 import { NodeIOImpl } from '../io/node-io-impl';
 import { PseudocodeError } from '../errors';
-import { readFileSync } from 'fs';
 
 /**
  * Node.js implementation of the CLI interface

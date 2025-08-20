@@ -20,7 +20,7 @@ export class Lexer {
 	private column: number = 1;
 
 	constructor(source: string) {
-		this.source = source;
+		this.source = source.trim();
 	}
 
 	/**
@@ -56,11 +56,9 @@ export class Lexer {
 			// One or two character tokens
 			case '+': this.addToken(TokenType.PLUS); break;
 			case '-':
-				if (this.match('>')) {
-					this.addToken(TokenType.ASSIGNMENT);
-				} else {
-					this.addToken(TokenType.MINUS);
-				}
+				// this.consumeSpace();
+				if (this.isDigit(this.peek())) this.number(true);
+				else this.addToken(TokenType.MINUS);
 				break;
 			case '*': this.addToken(TokenType.MULTIPLY); break;
 			// Divide / Comments
@@ -120,12 +118,16 @@ export class Lexer {
 				if (this.isDigit(c)) {
 					this.number();
 				} else if (this.isAlpha(c)) {
-					this.identifier();
+					this.identifierOrKeyword();
 				} else {
 					throw new SyntaxError(`Unexpected character: ${c}`, this.line, this.column);
 				}
 				break;
 		}
+	}
+
+	private consumeSpace(): void {
+		while (this.peek() === ' ' || this.peek() === '\t') this.advance();
 	}
 
 	/**
@@ -177,10 +179,10 @@ export class Lexer {
 	/**
 	 * Scan a number literal
 	 */
-	private number(): void {
+	private number(negative = false): void {
 		while (this.isDigit(this.peek())) this.advance();
 
-		// Look for a fractional part
+		// Look for a fracional part
 		if (this.peek() === '.' && this.isDigit(this.peekNext())) {
 			// Consume the "."
 			this.advance();
@@ -193,16 +195,16 @@ export class Lexer {
 
 		// Check if it's a real number
 		if (value.includes('.')) {
-			this.addToken(TokenType.REAL_LITERAL, parseFloat(value));
+			this.addToken(TokenType.REAL_LITERAL, Number(value));
 		} else {
-			this.addToken(TokenType.INTEGER_LITERAL, parseInt(value, 10));
+			this.addToken(TokenType.INTEGER_LITERAL, Number(value));
 		}
 	}
 
 	/**
 	 * Scan an identifier or keyword
 	 */
-	private identifier(): void {
+	private identifierOrKeyword(): void {
 		while (this.isAlphaNumeric(this.peek())) this.advance();
 
 		const text = this.source.substring(this.start, this.current);
@@ -292,7 +294,7 @@ export class Lexer {
 	 */
 	private addToken(type: TokenType, value?: any): void {
 		const text = this.source.substring(this.start, this.current);
-		this.tokens.push(TokenFactory.create(type, value || text, this.line, this.column - text.length));
+		this.tokens.push(TokenFactory.create(type, value ?? text, this.line, this.column - text.length));
 	}
 }
 
