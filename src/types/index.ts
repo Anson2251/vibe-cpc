@@ -1,6 +1,6 @@
 /**
  * Type Definitions for CAIE Pseudocode Interpreter
- * 
+ *
  * This module defines the type system for the CAIE pseudocode language,
  * mapping pseudocode types to TypeScript types and providing type validation.
  */
@@ -45,10 +45,10 @@ export class TypeValidator {
    */
   static isCompatible(expectedType: PseudocodeType, actualType: PseudocodeType): boolean {
     if (expectedType === actualType) return true;
-    
+
     // Allow INTEGER to REAL conversion (widening)
     if (expectedType === PseudocodeType.REAL && actualType === PseudocodeType.INTEGER) return true;
-    
+
     return false;
   }
 
@@ -57,7 +57,7 @@ export class TypeValidator {
    */
   static validateValue(value: any, expectedType: PseudocodeType): boolean {
     const tsType = typeof value;
-    
+
     switch (expectedType) {
       case PseudocodeType.INTEGER:
         return tsType === 'number' && Number.isInteger(value);
@@ -85,7 +85,7 @@ export class TypeValidator {
     }
 
     const tsType = typeof value;
-    
+
     switch (targetType) {
       case PseudocodeType.INTEGER:
         if (tsType === 'number') {
@@ -136,7 +136,7 @@ export class TypeValidator {
         }
         break;
     }
-    
+
     throw new Error(`Cannot convert value '${value}' of type ${tsType} to ${targetType}`);
   }
 }
@@ -146,7 +146,15 @@ export class TypeValidator {
  */
 export interface ArrayTypeInfo {
   elementType: PseudocodeType;
-  dimensions: number[];
+  bounds: ArrayBound[];  // Array of lower:upper bounds for each dimension
+}
+
+/**
+ * Array bound information for a single dimension
+ */
+export interface ArrayBound {
+  lower: number;
+  upper: number;
 }
 
 /**

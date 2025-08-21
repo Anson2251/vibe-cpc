@@ -103,9 +103,12 @@ export class Interpreter {
       const parser = new Parser(tokens);
       const ast = parser.parse();
 
+
       if (this.options.debug) {
         this.io.output(`AST: ${JSON.stringify(ast, null, 2)}\n`);
       }
+
+
 
       // Step 3: Evaluation - Execute the AST
       if (this.options.debug) {
@@ -135,6 +138,7 @@ export class Interpreter {
         steps: this.executionSteps
       };
     } catch (error) {
+		if (this.options.debug) console.error(error);
       // Calculate execution time in case of error
       const endTime = Date.now();
       const executionTime = endTime - startTime;

@@ -57,6 +57,7 @@ interface CaseNode extends StatementNode {
 import {
 	PseudocodeType,
 	ArrayTypeInfo,
+	ArrayBound,
 	UserDefinedTypeInfo,
 	TypeValidator,
 	ParameterMode
@@ -375,8 +376,26 @@ export class Evaluator {
 		let executed = false;
 
 		for (const caseItem of node.cases) {
-			for (const caseValue of caseItem.values) {
-				const value = await this.evaluate(caseValue);
+			if (caseItem.values.length === 2) {
+				const value1 = await this.evaluate(caseItem.values[0]);
+				const value2 = await this.evaluate(caseItem.values[1]);
+
+				if (value1 <= expressionValue && expressionValue <= value2) {
+					executed = true;
+
+					for (const statement of caseItem.body) {
+						await this.evaluate(statement);
+
+						if (this.context.shouldReturnFromRoutine()) {
+							return;
+						}
+					}
+
+					break;
+				}
+			}
+			else if (caseItem.values.length === 1) {
+				const value = await this.evaluate(caseItem.values[0]);
 
 				if (this.isEqual(expressionValue, value)) {
 					executed = true;
@@ -391,6 +410,9 @@ export class Evaluator {
 
 					break;
 				}
+			}
+			else {
+				throw new RuntimeError('Invalid case item', node.line, node.column);
 			}
 
 			if (executed) {
@@ -821,6 +843,9 @@ export class Evaluator {
 				}
 				return Number(left) + Number(right);
 
+			case '&':
+				return String(left) + String(right);
+
 			case '-':
 				return Number(left) - Number(right);
 
@@ -1155,21 +1180,26 @@ export class Evaluator {
 	}
 
 	/**
-	 * Create an empty array with the specified dimensions
+	 * Create an empty array with the specified bounds
 	 */
 	private createEmptyArray(arrayType: ArrayTypeInfo): any[] {
-		if (arrayType.dimensions.length === 1) {
-			return new Array(arrayType.dimensions[0]);
+		if (arrayType.bounds.length === 1) {
+			const bound = arrayType.bounds[0];
+			const size = bound.upper - bound.lower + 1;
+			return new Array(size);
 		}
 
 		// Create multi-dimensional array recursively
 		const result: any[] = [];
+		const bound = arrayType.bounds[0];
+		const size = bound.upper - bound.lower + 1;
+
 		const subArrayType: ArrayTypeInfo = {
 			elementType: arrayType.elementType,
-			dimensions: arrayType.dimensions.slice(1)
+			bounds: arrayType.bounds.slice(1)
 		};
 
-		for (let i = 0; i < arrayType.dimensions[0]; i++) {
+		for (let i = 0; i < size; i++) {
 			result.push(this.createEmptyArray(subArrayType));
 		}
 
@@ -1181,14 +1211,16 @@ export class Evaluator {
 	 */
 	private getArrayElement(array: any, indices: number[]): any {
 		if (indices.length === 1) {
-			if (indices[0] < 0 || indices[0] >= array.length) {
-				throw new IndexError(`Array index out of bounds: ${indices[0]}`);
+			const index = indices[0];
+			if (index < 1 || index > array.length) {
+				throw new IndexError(`Array index out of bounds: ${index}`);
 			}
 
-			return array[indices[0]];
+			// Convert from 1-based to 0-based indexing
+			return array[index - 1];
 		}
 
-		const subArray = array[indices[0]];
+		const subArray = array[indices[0] - 1]; // Convert from 1-based to 0-based indexing
 		return this.getArrayElement(subArray, indices.slice(1));
 	}
 
@@ -1197,15 +1229,17 @@ export class Evaluator {
 	 */
 	private setArrayElement(array: any, indices: number[], value: any): void {
 		if (indices.length === 1) {
-			if (indices[0] < 0 || indices[0] >= array.length) {
-				throw new IndexError(`Array index out of bounds: ${indices[0]}`);
+			const index = indices[0];
+			if (index < 1 || index > array.length) {
+				throw new IndexError(`Array index out of bounds: ${index}`);
 			}
 
-			array[indices[0]] = value;
+			// Convert from 1-based to 0-based indexing
+			array[index - 1] = value;
 			return;
 		}
 
-		const subArray = array[indices[0]];
+		const subArray = array[indices[0] - 1]; // Convert from 1-based to 0-based indexing
 		this.setArrayElement(subArray, indices.slice(1), value);
 	}
 

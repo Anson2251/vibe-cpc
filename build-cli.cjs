@@ -56,6 +56,7 @@ else if (target === "node") {
         platform: 'node',
         target: ['node16'],
         external: ["readline/promises", "fs/promises"],  // Add std to the external list
+        sourcemap: true,
     }
     esbuild.build(options).catch(onError);
     esbuild.build({

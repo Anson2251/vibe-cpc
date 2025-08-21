@@ -5,7 +5,7 @@
  * It converts source code into a stream of tokens.
  */
 
-import { Token, TokenType, TokenFactory } from './tokens';
+import { Token, TokenType, TokenFactory, OPERATOR_TOKENS } from './tokens';
 import { SyntaxError } from '../errors';
 
 /**
@@ -61,6 +61,7 @@ export class Lexer {
 				else this.addToken(TokenType.MINUS);
 				break;
 			case '*': this.addToken(TokenType.MULTIPLY); break;
+			case '&': this.addToken(TokenType.STRING_CONCAT); break;
 			// Divide / Comments
 			case '/':
 				if (this.match('/')) {
@@ -210,7 +211,7 @@ export class Lexer {
 		const text = this.source.substring(this.start, this.current);
 
 		// Check if it's a keyword
-		const tokenType = KEYWORD_TOKENS[text.toUpperCase()];
+		const tokenType = KEYWORD_TOKENS[text.toUpperCase()] ?? OPERATOR_TOKENS[text.toUpperCase()];
 		if (tokenType !== undefined) {
 			this.addToken(tokenType);
 		} else {

@@ -377,7 +377,7 @@ export class Environment {
 		}
 
 		// Check dimensions
-		const expectedDimensions = expectedType.dimensions.length;
+		const expectedDimensions = expectedType.bounds.length;
 		const actualDimensions = this.getArrayDimensions(value);
 
 		if (expectedDimensions !== actualDimensions) {

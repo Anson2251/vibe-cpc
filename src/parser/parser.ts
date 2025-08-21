@@ -52,6 +52,7 @@ import {
 import {
 	PseudocodeType,
 	ArrayTypeInfo,
+	ArrayBound,
 	UserDefinedTypeInfo,
 	ParameterMode
 } from '../types';
@@ -144,7 +145,7 @@ export class Parser {
 				return this.outputStatement();
 			}
 
-			if (this.match(TokenType.RETURNS)) {
+			if (this.match(TokenType.RETURN)) {
 				return this.returnStatement();
 			}
 
@@ -210,34 +211,47 @@ export class Parser {
 		let dataType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
 
 		if (this.match(TokenType.ARRAY)) {
+			// Parse array bounds in CAIE format: [lower:upper]
+			const bounds: ArrayBound[] = [];
+			this.consume(TokenType.LEFT_BRACKET, "Expected '[' for array bounds");
+
+			while (!this.check(TokenType.RIGHT_BRACKET)) {
+				// Parse lower bound
+				const lowerExpr = this.expression();
+				if (lowerExpr.type !== 'Literal' || typeof (lowerExpr as LiteralNode).value !== 'number') {
+					throw this.error(this.peek(), "Array bounds must be integer literals");
+				}
+				const lower = (lowerExpr as LiteralNode).value;
+
+				// Expect colon separator
+				this.consume(TokenType.COLON, "Expected ':' between array bounds");
+
+				// Parse upper bound
+				const upperExpr = this.expression();
+				if (upperExpr.type !== 'Literal' || typeof (upperExpr as LiteralNode).value !== 'number') {
+					throw this.error(this.peek(), "Array bounds must be integer literals");
+				}
+				const upper = (upperExpr as LiteralNode).value;
+
+				bounds.push({ lower, upper });
+
+				// Check for comma for multi-dimensional arrays
+				if (this.match(TokenType.COMMA)) {
+					continue;
+				}
+			}
+
+			this.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array bounds");
+
 			// Array type
 			this.consume(TokenType.OF, "Expected 'OF' after ARRAY");
 			const elementType = this.parseDataType();
 
-			// Parse array dimensions
-			const dimensions: number[] = [];
-			this.consume(TokenType.LEFT_BRACKET, "Expected '[' for array dimensions");
-
-			while (!this.check(TokenType.RIGHT_BRACKET)) {
-				const expr = this.expression();
-				if (expr.type !== 'Literal' || typeof (expr as LiteralNode).value !== 'number') {
-					throw this.error(this.peek(), "Array dimensions must be integer literals");
-				}
-				dimensions.push((expr as LiteralNode).value);
-
-				if (!this.match(TokenType.COMMA)) {
-					break;
-				}
-			}
-
-			this.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array dimensions");
-
 			dataType = {
 				elementType,
-				dimensions
+				bounds
 			} as ArrayTypeInfo;
 		} else {
-			// console.log(this.advance(), this.peek())
 			dataType = this.parseDataType();
 		}
 
@@ -310,8 +324,8 @@ export class Parser {
 		const line = this.previous().line;
 		const column = this.previous().column;
 
-		const expression = this.expression();
 		this.consume(TokenType.OF, "Expected 'OF' after CASE expression");
+		const expression = this.expression();
 		this.consumeNewline();
 
 		const cases: { values: ExpressionNode[], body: StatementNode[] }[] = [];
@@ -335,16 +349,17 @@ export class Parser {
 			}
 
 			const caseValues: ExpressionNode[] = [];
+			let rangeUsed = false;
 
-			// Parse case values (can be multiple separated by commas)
-			// Check if there's at least one expression before the colon
-			if (this.check(TokenType.COLON)) {
-				throw this.error(this.peek(), "Expected at least one CASE value before ':'");
+			if (this.peekOffset(1).type === TokenType.TO) { // a range specified
+				rangeUsed = true;
+				caseValues.push(this.expression())
+				this.consume(TokenType.TO, "Expected 'TO' when a range is used in CASE statement");
+				caseValues.push(this.expression())
 			}
-
-			do {
+			else { // a single value specified
 				caseValues.push(this.expression());
-			} while (this.match(TokenType.COMMA));
+			}
 
 			this.consume(TokenType.COLON, "Expected ':' after CASE values");
 			this.consumeNewline();
@@ -352,6 +367,8 @@ export class Parser {
 			// Parse case body
 			const caseBody: StatementNode[] = [];
 			while (
+				this.peekOffset(1).type !== TokenType.COLON &&
+				this.peekOffset(1).type !== TokenType.TO &&
 				!this.check(TokenType.CASE) &&
 				!this.check(TokenType.ENDCASE) &&
 				!this.check(TokenType.OTHERWISE) &&
@@ -537,7 +554,7 @@ export class Parser {
 		this.consume(TokenType.LEFT_PAREN, "Expected '(' after function name");
 		const parameters = this.parseParameters();
 		this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
-
+		this.consumeNewline();
 		this.consume(TokenType.RETURNS, "Expected 'RETURNS' in function declaration");
 		const returnType = this.parseDataType();
 		this.consumeNewline();
@@ -1195,7 +1212,7 @@ export class Parser {
 	private term(): ExpressionNode {
 		let expr = this.factor();
 
-		while (this.match(TokenType.PLUS) || this.match(TokenType.MINUS)) {
+		while (this.match(TokenType.PLUS) || this.match(TokenType.MINUS) || this.match(TokenType.STRING_CONCAT)) {
 			const operator = this.previous().value;
 			const right = this.factor();
 			expr = {
@@ -1414,7 +1431,7 @@ export class Parser {
 			} as NewExpressionNode;
 		}
 
-		throw this.error(this.peek(), "Expected expression");
+		throw this.error(this.peek(), "Expected expression, found " + this.peek().value);
 	}
 
 	/**
@@ -1493,6 +1510,10 @@ export class Parser {
 	 */
 	private peek(): Token {
 		return this.tokens[this.current];
+	}
+
+	private peekOffset(offset: number): Token {
+		return this.tokens[this.current + offset];
 	}
 
 	/**

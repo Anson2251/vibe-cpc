@@ -15,15 +15,12 @@ IF number < 0 THEN
 ELSE
   // Initialize factorial to 1
   factorial <- 1
-  
+
   // Calculate factorial using a loop
   FOR counter <- 1 TO number
     factorial <- factorial * counter
   NEXT counter
-  
+
   // Output the result
-  OUTPUT "The factorial of "
-  OUTPUT number
-  OUTPUT " is "
-  OUTPUT factorial
+  OUTPUT "The factorial of ", number, " is ", factorial
 ENDIF

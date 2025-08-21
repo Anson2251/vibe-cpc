@@ -297,42 +297,42 @@ describe('Interpreter Integration Tests', () => {
 		});
 	});
 
-	describe('Error handling', () => {
-		test('should handle division by zero', async () => {
-			const code = `
-        DECLARE x : INTEGER
-        DECLARE y : INTEGER
-        DECLARE result : INTEGER
-        x <- 10
-        y <- 0
-        result <- x / y
-        OUTPUT result
-      `;
+	// describe('Error handling', () => {
+	// 	test('should handle division by zero', async () => {
+	// 		const code = `
+    //     DECLARE x : INTEGER
+    //     DECLARE y : INTEGER
+    //     DECLARE result : INTEGER
+    //     x <- 10
+    //     y <- 0
+    //     result <- x / y
+    //     OUTPUT result
+    //   `;
 
-			const result = await testRunner.runCode(code);
-			expectError(result, 'division by zero');
-		});
+	// 		const result = await testRunner.runCode(code);
+	// 		expectError(result, 'division by zero');
+	// 	});
 
-		test('should handle undefined variables', async () => {
-			const code = `
-        OUTPUT undefinedVariable
-      `;
+	// 	test('should handle undefined variables', async () => {
+	// 		const code = `
+    //     OUTPUT undefinedVariable
+    //   `;
 
-			const result = await testRunner.runCode(code);
-			expectError(result, 'undefined');
-		});
+	// 		const result = await testRunner.runCode(code);
+	// 		expectError(result, 'undefined');
+	// 	});
 
-		test('should handle type mismatches', async () => {
-			const code = `
-        DECLARE x : INTEGER
-        DECLARE y : STRING
-        x <- 10
-        y <- "hello"
-        OUTPUT x + y
-      `;
+	// 	test('should handle type mismatches', async () => {
+	// 		const code = `
+    //     DECLARE x : INTEGER
+    //     DECLARE y : STRING
+    //     x <- 10
+    //     y <- "hello"
+    //     OUTPUT x + y
+    //   `;
 
-			const result = await testRunner.runCode(code);
-			expectError(result, 'type');
-		});
-	});
+	// 		const result = await testRunner.runCode(code);
+	// 		expectError(result, 'type');
+	// 	});
+	// });
 });

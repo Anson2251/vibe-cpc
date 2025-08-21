@@ -43,6 +43,7 @@ export enum TokenType {
 	BYVAL = 'BYVAL',
 	BYREF = 'BYREF',
 	RETURNS = 'RETURNS',
+	RETURN = 'RETURN',
 	CALL = 'CALL',
 	INPUT = 'INPUT',
 	OUTPUT = 'OUTPUT',
@@ -92,6 +93,7 @@ export enum TokenType {
 	OR = 'OR',
 	NOT = 'NOT',
 	ASSIGNMENT = 'ASSIGNMENT',
+	STRING_CONCAT = 'STRING_CONCAT',
 
 	// Delimiters
 	LEFT_PAREN = 'LEFT_PAREN',
@@ -145,6 +147,7 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
 	'BYVAL': TokenType.BYVAL,
 	'BYREF': TokenType.BYREF,
 	'RETURNS': TokenType.RETURNS,
+	'RETURN': TokenType.RETURN,
 	'CALL': TokenType.CALL,
 	'INPUT': TokenType.INPUT,
 	'OUTPUT': TokenType.OUTPUT,
@@ -168,8 +171,6 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
 	'AND': TokenType.AND,
 	'OR': TokenType.OR,
 	'NOT': TokenType.NOT,
-	'DIV': TokenType.DIV,
-	'MOD': TokenType.MOD,
 };
 
 /**
@@ -192,6 +193,7 @@ export const OPERATOR_TOKENS: Record<string, TokenType> = {
 	'AND': TokenType.AND,
 	'OR': TokenType.OR,
 	'NOT': TokenType.NOT,
+	'&': TokenType.STRING_CONCAT
 };
 
 /**

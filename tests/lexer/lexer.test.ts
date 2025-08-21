@@ -1,5 +1,5 @@
 import { Lexer } from '../../src/lexer/lexer';
-import { TokenType, KEYWORD_TOKENS } from '../../src/lexer/tokens';
+import { TokenType, KEYWORD_TOKENS, OPERATOR_TOKENS } from '../../src/lexer/tokens';
 
 describe('Lexer', () => {
 	describe('Basic tokens', () => {
@@ -98,7 +98,7 @@ describe('Lexer', () => {
 				const tokens = lexer.tokenize();
 
 				expect(tokens).toHaveLength(2);
-				expect(tokens[0].type).toBe(KEYWORD_TOKENS[keyword]);
+				expect(tokens[0].type).toBe(KEYWORD_TOKENS[keyword] ?? OPERATOR_TOKENS[keyword]);
 				expect(tokens[0].value).toBe(keyword);
 			});
 		});

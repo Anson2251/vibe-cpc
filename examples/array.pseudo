@@ -1,0 +1,10 @@
+DECLARE arr : ARRAY[1:5] OF INTEGER
+DECLARE i : INTEGER
+
+FOR i <- 1 TO 5
+    arr[i] <- i * 2
+NEXT
+
+FOR i <- 1 TO 5
+    OUTPUT arr[i]
+NEXT i
