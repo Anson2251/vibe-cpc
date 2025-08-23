@@ -214,7 +214,7 @@ export const DELIMITER_TOKENS: Record<string, TokenType> = {
 export class Token {
 	constructor(
 		public type: TokenType,
-		public value: string,
+		public value: unknown,
 		public line: number,
 		public column: number
 	) { }
@@ -272,7 +272,7 @@ export class Token {
 	 * Get a string representation of the token
 	 */
 	toString(): string {
-		return `Token(${this.type}, "${this.value}", ${this.line}:${this.column})`;
+		return `Token(${this.type}, "${String(this.value)}", ${this.line}:${this.column})`;
 	}
 
 	/**
@@ -300,7 +300,7 @@ export class TokenFactory {
 	 */
 	static create(
 		type: TokenType,
-		value: string,
+		value: unknown,
 		line: number,
 		column: number
 	): Token {

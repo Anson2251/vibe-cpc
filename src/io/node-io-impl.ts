@@ -161,11 +161,11 @@ export class NodeIOImpl implements IOInterface {
 	/**
 	 * Clean up resources when the IO implementation is no longer needed
 	 */
-	dispose(): void {
+	async dispose() {
 		// Close all open file handles
-		for (const [handle, fileHandle] of this.fileHandles.entries()) {
+		for (const fileHandle of this.fileHandles.values()) {
 			try {
-				fileHandle.close();
+				await fileHandle.close();
 			} catch (error) {
 				console.warn("Failed to close file handle: ", error)
 			}

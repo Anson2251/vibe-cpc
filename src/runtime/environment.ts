@@ -10,18 +10,20 @@ import {
 	ArrayTypeInfo,
 	UserDefinedTypeInfo,
 	VariableInfo,
-	ParameterMode,
-	ParameterInfo,
+	// ParameterMode,
+	// ParameterInfo,
 	RoutineSignature
 } from '../types';
 import { RuntimeError } from '../errors';
-import { IOInterface } from '../io/io-interface';
+import { ASTNode } from '../parser/ast-nodes';
+import { VariableAtom, VariableAtomFactory } from './variable-atoms';
+// import { IOInterface } from '../io/io-interface';
 
 /**
  * Runtime value wrapper
  */
 export interface RuntimeValue {
-	value: any;
+	value: unknown;
 	type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
 }
 
@@ -30,7 +32,7 @@ export interface RuntimeValue {
  */
 export class ExecutionContext {
 	environment: Environment;
-	returnValue?: any;
+	returnValue?: unknown;
 	shouldReturn: boolean;
 	currentLine?: number;
 	currentColumn?: number;
@@ -52,14 +54,14 @@ export class ExecutionContext {
 	/**
 	 * Get the return value
 	 */
-	getReturnValue(): any {
+	getReturnValue(): unknown {
 		return this.returnValue;
 	}
 
 	/**
 	 * Set the return value
 	 */
-	setReturnValue(value: any): void {
+	setReturnValue(value: unknown): void {
 		this.returnValue = value;
 	}
 
@@ -114,9 +116,9 @@ export interface Scope {
  * Extended routine information with execution details
  */
 export interface RoutineInfo extends RoutineSignature {
-	node?: any; // AST node for the routine
+	node?: ASTNode; // AST node for the routine
 	isBuiltIn?: boolean;
-	implementation?: (args: any[], context: ExecutionContext) => any;
+	implementation?: (args: unknown[], context: ExecutionContext) => unknown;
 	// Override returnType to allow complex types
 	returnType?: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
 }
@@ -125,9 +127,7 @@ export interface RoutineInfo extends RoutineSignature {
  * Environment class for managing variable scopes and storage
  */
 export class Environment {
-	private values: Map<string, any> = new Map();
-	types: Map<string, PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo> = new Map();
-	private constants: Set<string> = new Set();
+	private variables: Map<string, VariableAtom> = new Map();
 	private parent?: Environment;
 	private routines: Map<string, RoutineSignature> = new Map();
 	private fileHandles: Map<string, number> = new Map();
@@ -140,25 +140,22 @@ export class Environment {
 	/**
 	 * Define a variable in the current environment
 	 */
-	define(name: string, type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo, value: any, isConstant: boolean = false): void {
-		if (this.values.has(name)) {
+	define(name: string, type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo, value: unknown, isConstant: boolean = false): void {
+		if (this.variables.has(name)) {
 			throw new RuntimeError(`Variable '${name}' already declared in this scope`);
 		}
 
-		this.values.set(name, value);
-		this.types.set(name, type);
-
-		if (isConstant) {
-			this.constants.add(name);
-		}
+		const atom = VariableAtomFactory.createAtom(type, value, isConstant);
+		this.variables.set(name, atom);
 	}
 
 	/**
 	 * Get the value of a variable
 	 */
-	get(name: string): any {
-		if (this.values.has(name)) {
-			return this.values.get(name);
+	get(name: string): unknown {
+		if (this.variables.has(name)) {
+			const atom = this.variables.get(name)!;
+			return atom.value;
 		}
 
 		if (this.parent !== undefined) {
@@ -172,8 +169,9 @@ export class Environment {
 	 * Get the type of a variable
 	 */
 	getType(name: string): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo {
-		if (this.types.has(name)) {
-			return this.types.get(name)!;
+		if (this.variables.has(name)) {
+			const atom = this.variables.get(name)!;
+			return atom.type;
 		}
 
 		if (this.parent !== undefined) {
@@ -187,7 +185,7 @@ export class Environment {
 	 * Check if a variable is defined
 	 */
 	has(name: string): boolean {
-		if (this.values.has(name)) {
+		if (this.variables.has(name)) {
 			return true;
 		}
 
@@ -201,17 +199,16 @@ export class Environment {
 	/**
 	 * Assign a value to a variable
 	 */
-	assign(name: string, value: any): void {
-		if (this.constants.has(name)) {
-			throw new RuntimeError(`Cannot assign to constant '${name}'`);
-		}
+	assign(name: string, value: unknown): void {
+		if (this.variables.has(name)) {
+			const atom = this.variables.get(name)!;
 
-		if (this.values.has(name)) {
-			// Check type compatibility
-			const expectedType = this.types.get(name)!;
-			this.validateType(value, expectedType);
+			if (atom.isConstant) {
+				throw new RuntimeError(`Cannot assign to constant '${name}'`);
+			}
 
-			this.values.set(name, value);
+			// Use the atom's built-in validation and assignment
+			atom.value = value;
 			return;
 		}
 
@@ -315,54 +312,52 @@ export class Environment {
 	/**
 	 * Validate that a value matches the expected type
 	 */
-	private validateType(value: any, expectedType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo): void {
+	private validateType(value: unknown, expectedType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo): void {
 		if (typeof expectedType === 'string') {
 			// Simple type
-			this.validateSimpleType(value, expectedType as PseudocodeType);
+			this.validateSimpleType(value, expectedType);
 		} else if ('elementType' in expectedType) {
 			// Array type
-			this.validateArrayType(value, expectedType as ArrayTypeInfo);
+			this.validateArrayType(value, expectedType);
 		} else if ('fields' in expectedType) {
 			// User-defined type
-			this.validateUserDefinedType(value, expectedType as UserDefinedTypeInfo);
+			this.validateUserDefinedType(value, expectedType);
 		}
 	}
 
 	/**
 	 * Validate a simple type
 	 */
-	private validateSimpleType(value: any, expectedType: PseudocodeType): void {
-		const actualType = typeof value;
-
+	private validateSimpleType(value: unknown, expectedType: PseudocodeType): void {
 		switch (expectedType) {
 			case PseudocodeType.INTEGER:
-				if (actualType !== 'number' || !Number.isInteger(value)) {
-					throw new RuntimeError(`Expected INTEGER, got ${actualType}`);
+				if (typeof value !== 'number' || !Number.isInteger(value)) {
+					throw new RuntimeError(`Expected INTEGER, got ${typeof value}`);
 				}
 				break;
 			case PseudocodeType.REAL:
-				if (actualType !== 'number') {
-					throw new RuntimeError(`Expected REAL, got ${actualType}`);
+				if (typeof value !== 'number') {
+					throw new RuntimeError(`Expected REAL, got ${typeof value}`);
 				}
 				break;
 			case PseudocodeType.CHAR:
-				if (actualType !== 'string' || value.length !== 1) {
-					throw new RuntimeError(`Expected CHAR, got ${actualType}`);
+				if (typeof value !== 'string' || (typeof value === 'string' && value.length !== 1)) {
+					throw new RuntimeError(`Expected CHAR, got ${typeof value}`);
 				}
 				break;
 			case PseudocodeType.STRING:
-				if (actualType !== 'string') {
-					throw new RuntimeError(`Expected STRING, got ${actualType}`);
+				if (typeof value !== 'string') {
+					throw new RuntimeError(`Expected STRING, got ${typeof value}`);
 				}
 				break;
 			case PseudocodeType.BOOLEAN:
-				if (actualType !== 'boolean') {
-					throw new RuntimeError(`Expected BOOLEAN, got ${actualType}`);
+				if (typeof value !== 'boolean') {
+					throw new RuntimeError(`Expected BOOLEAN, got ${typeof value}`);
 				}
 				break;
 			case PseudocodeType.DATE:
 				if (!(value instanceof Date)) {
-					throw new RuntimeError(`Expected DATE, got ${actualType}`);
+					throw new RuntimeError(`Expected DATE, got ${typeof value}`);
 				}
 				break;
 		}
@@ -371,7 +366,7 @@ export class Environment {
 	/**
 	 * Validate an array type
 	 */
-	private validateArrayType(value: any, expectedType: ArrayTypeInfo): void {
+	private validateArrayType(value: unknown, expectedType: ArrayTypeInfo): void {
 		if (!Array.isArray(value)) {
 			throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);
 		}
@@ -391,7 +386,7 @@ export class Environment {
 	/**
 	 * Validate a user-defined type
 	 */
-	private validateUserDefinedType(value: any, expectedType: UserDefinedTypeInfo): void {
+	private validateUserDefinedType(value: unknown, expectedType: UserDefinedTypeInfo): void {
 		if (typeof value !== 'object' || value === null) {
 			throw new RuntimeError(`Expected user-defined type '${expectedType.name}', got ${typeof value}`);
 		}
@@ -402,14 +397,14 @@ export class Environment {
 				throw new RuntimeError(`Missing field '${fieldName}' in user-defined type '${expectedType.name}'`);
 			}
 
-			this.validateType(value[fieldName], fieldType);
+			this.validateType(value[fieldName as keyof typeof value], fieldType);
 		}
 	}
 
 	/**
 	 * Get the dimensions of an array
 	 */
-	private getArrayDimensions(array: any[]): number {
+	private getArrayDimensions(array: unknown[]): number {
 		if (array.length === 0) {
 			return 1;
 		}
@@ -424,7 +419,7 @@ export class Environment {
 	/**
 	 * Validate array elements recursively
 	 */
-	private validateArrayElements(array: any[], elementType: PseudocodeType, dimensions: number): void {
+	private validateArrayElements(array: unknown[], elementType: PseudocodeType, dimensions: number): void {
 		if (dimensions === 1) {
 			for (const element of array) {
 				this.validateSimpleType(element, elementType);
@@ -445,12 +440,12 @@ export class Environment {
 	getVariables(): VariableInfo[] {
 		const variables: VariableInfo[] = [];
 
-		for (const [name, value] of this.values.entries()) {
+		for (const [name, atom] of this.variables.entries()) {
 			variables.push({
 				name,
-				type: this.types.get(name)!,
-				value,
-				isConstant: this.constants.has(name)
+				type: atom.type,
+				value: atom.value,
+				isConstant: atom.isConstant
 			});
 		}
 
@@ -467,21 +462,21 @@ export class Environment {
 	/**
 	 * Define a variable (alias for define)
 	 */
-	defineVariable(name: string, type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo, value: any, isConstant: boolean = false): void {
+	defineVariable(name: string, type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo, value: unknown, isConstant: boolean = false): void {
 		this.define(name, type, value, isConstant);
 	}
 
 	/**
 	 * Set a variable value (alias for assign)
 	 */
-	setVariable(name: string, value: any): void {
+	setVariable(name: string, value: unknown): void {
 		this.assign(name, value);
 	}
 
 	/**
 	 * Get a variable value (alias for get)
 	 */
-	getVariable(name: string): any {
+	getVariable(name: string): unknown {
 		return this.get(name);
 	}
 

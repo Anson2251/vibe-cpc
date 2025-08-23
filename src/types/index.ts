@@ -55,20 +55,18 @@ export class TypeValidator {
   /**
    * Validate that a value matches the expected pseudocode type
    */
-  static validateValue(value: any, expectedType: PseudocodeType): boolean {
-    const tsType = typeof value;
-
+  static validateValue(value: unknown, expectedType: PseudocodeType): boolean {
     switch (expectedType) {
       case PseudocodeType.INTEGER:
-        return tsType === 'number' && Number.isInteger(value);
+        return typeof value === 'number' && Number.isInteger(value);
       case PseudocodeType.REAL:
-        return tsType === 'number';
+        return typeof value === 'number';
       case PseudocodeType.CHAR:
-        return tsType === 'string' && value.length === 1;
+        return typeof value === 'string' && value.length === 1;
       case PseudocodeType.STRING:
-        return tsType === 'string';
+        return typeof value === 'string';
       case PseudocodeType.BOOLEAN:
-        return tsType === 'boolean';
+        return typeof value === 'boolean';
       case PseudocodeType.DATE:
         return value instanceof Date;
       default:
@@ -79,48 +77,46 @@ export class TypeValidator {
   /**
    * Convert a value to the specified pseudocode type
    */
-  static convertValue(value: any, targetType: PseudocodeType): any {
+  static convertValue(value: unknown, targetType: PseudocodeType): unknown {
     if (this.validateValue(value, targetType)) {
       return value;
     }
 
-    const tsType = typeof value;
-
     switch (targetType) {
       case PseudocodeType.INTEGER:
-        if (tsType === 'number') {
+        if (typeof value === 'number') {
           return Math.floor(value);
         }
-        if (tsType === 'string' && !isNaN(Number(value))) {
+        if (typeof value === 'string' && !isNaN(Number(value))) {
           return Math.floor(Number(value));
         }
         break;
       case PseudocodeType.REAL:
-        if (tsType === 'number') {
+        if (typeof value === 'number') {
           return value;
         }
-        if (tsType === 'string' && !isNaN(Number(value))) {
+        if (typeof value === 'string' && !isNaN(Number(value))) {
           return Number(value);
         }
         break;
       case PseudocodeType.CHAR:
-        if (tsType === 'string') {
+        if (typeof value === 'string') {
           return value.charAt(0);
         }
-        if (tsType === 'number') {
+        if (typeof value === 'number') {
           return String(value).charAt(0);
         }
         break;
       case PseudocodeType.STRING:
         return String(value);
       case PseudocodeType.BOOLEAN:
-        if (tsType === 'boolean') {
+        if (typeof value === 'boolean') {
           return value;
         }
-        if (tsType === 'string') {
+        if (typeof value === 'string') {
           return value.toLowerCase() === 'true';
         }
-        if (tsType === 'number') {
+        if (typeof value === 'number') {
           return value !== 0;
         }
         break;
@@ -128,16 +124,16 @@ export class TypeValidator {
         if (value instanceof Date) {
           return value;
         }
-        if (tsType === 'string') {
+        if (typeof value === 'string') {
           return new Date(value);
         }
-        if (tsType === 'number') {
+        if (typeof value === 'number') {
           return new Date(value);
         }
         break;
     }
 
-    throw new Error(`Cannot convert value '${value}' of type ${tsType} to ${targetType}`);
+    throw new Error(`Cannot convert value '${String(value)}' of type ${typeof value} to ${targetType}`);
   }
 }
 
@@ -171,7 +167,7 @@ export interface UserDefinedTypeInfo {
 export interface VariableInfo {
   name: string;
   type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
-  value: any;
+  value: unknown;
   isConstant: boolean;
 }
 

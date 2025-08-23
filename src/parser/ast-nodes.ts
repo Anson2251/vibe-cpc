@@ -18,6 +18,7 @@ export interface ASTNode {
 /**
  * Base interface for all statement nodes
  */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface StatementNode extends ASTNode {
 	// Marker interface for statements
 }
@@ -25,6 +26,7 @@ export interface StatementNode extends ASTNode {
 /**
  * Base interface for all expression nodes
  */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ExpressionNode extends ASTNode {
 	// Marker interface for expressions
 }
@@ -315,7 +317,7 @@ export interface IdentifierNode extends ExpressionNode {
  */
 export interface LiteralNode extends ExpressionNode {
 	type: 'Literal';
-	value: any;
+	value: unknown;
 	dataType: PseudocodeType;
 }
 

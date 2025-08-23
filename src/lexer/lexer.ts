@@ -57,7 +57,7 @@ export class Lexer {
 			case '+': this.addToken(TokenType.PLUS); break;
 			case '-':
 				// this.consumeSpace();
-				if (this.isDigit(this.peek())) this.number(true);
+				if (this.isDigit(this.peek())) this.number();
 				else this.addToken(TokenType.MINUS);
 				break;
 			case '*': this.addToken(TokenType.MULTIPLY); break;
@@ -180,7 +180,7 @@ export class Lexer {
 	/**
 	 * Scan a number literal
 	 */
-	private number(negative = false): void {
+	private number(): void {
 		while (this.isDigit(this.peek())) this.advance();
 
 		// Look for a fracional part
@@ -293,7 +293,7 @@ export class Lexer {
 	/**
 	 * Add a token to the tokens list
 	 */
-	private addToken(type: TokenType, value?: any): void {
+	private addToken(type: TokenType, value?: unknown): void {
 		const text = this.source.substring(this.start, this.current);
 		this.tokens.push(TokenFactory.create(type, value ?? text, this.line, this.column - text.length));
 	}

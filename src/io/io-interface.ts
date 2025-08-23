@@ -92,4 +92,6 @@ export interface IOInterface {
 	 * @param column - Optional column number where the error occurred
 	 */
 	error(message: string, line?: number, column?: number): void;
+
+	dispose(): Promise<void>;
 }

@@ -1,6 +1,6 @@
 import { Parser } from '../../src/parser/parser';
 import { Lexer } from '../../src/lexer/lexer';
-import { TokenType } from '../../src/lexer/tokens';
+
 import {
 	ProgramNode,
 	VariableDeclarationNode,

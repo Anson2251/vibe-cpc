@@ -1,26 +1,25 @@
 // Factorial Calculation Program
 // This program calculates the factorial of a number entered by the user
 
-DECLARE number : INTEGER
-DECLARE factorial : INTEGER
-DECLARE counter : INTEGER
+FUNCTION Factorial(number : INTEGER) RETURNS INTEGER
+  DECLARE factorial : INTEGER
+  DECLARE counter : INTEGER
+  // Validate input
+  IF number < 0 THEN
+    OUTPUT "Factorial is not defined for negative numbers."
+  ELSE
+    // Initialize factorial to 1
+    factorial <- 1
 
-// Get user input
-OUTPUT "Enter a number to calculate its factorial: "
-INPUT number
+    // Calculate factorial using a loop
+    FOR counter <- 1 TO number
+      factorial <- factorial * counter
+    NEXT counter
 
-// Validate input
-IF number < 0 THEN
-  OUTPUT "Factorial is not defined for negative numbers."
-ELSE
-  // Initialize factorial to 1
-  factorial <- 1
+    // Output the result
+    RETURN factorial
+  ENDIF
+ENDFUNCTION
 
-  // Calculate factorial using a loop
-  FOR counter <- 1 TO number
-    factorial <- factorial * counter
-  NEXT counter
+OUTPUT Factorial(5)
 
-  // Output the result
-  OUTPUT "The factorial of ", number, " is ", factorial
-ENDIF

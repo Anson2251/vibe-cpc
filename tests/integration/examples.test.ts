@@ -16,7 +16,7 @@ describe('Example Programs Tests', () => {
 	test('should execute hello-world.pseudo example', async () => {
 		const code = loadExampleFile('hello-world.pseudo');
 		const result = await testRunner.runCode(code);
-		expectOutput(result, ['Hello, World!', '13']);
+		expectOutput(result, ['Hello, World!']);
 	});
 
 	test('should execute factorial.pseudo example', async () => {

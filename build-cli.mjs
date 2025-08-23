@@ -1,4 +1,4 @@
-const esbuild = require('esbuild');
+import { build } from 'esbuild';
 const argv = process.argv;
 
 const helpMsg = `
@@ -41,8 +41,8 @@ if (target === "qjs") {
         target: ['es2020'],
         external: ["std"],  // Add std to the external list
     }
-    esbuild.build(options).catch(onError);
-    esbuild.build({
+    build(options).catch(onError);
+    build({
         ...options,
         outfile: 'dist/interpreter-qjs.min.mjs',
         minify: true,
@@ -58,8 +58,8 @@ else if (target === "node") {
         external: ["readline/promises", "fs/promises"],  // Add std to the external list
         sourcemap: true,
     }
-    esbuild.build(options).catch(onError);
-    esbuild.build({
+    build(options).catch(onError);
+    build({
         ...options,
         outfile: 'dist/interpreter-node.min.cjs',
         minify: true,

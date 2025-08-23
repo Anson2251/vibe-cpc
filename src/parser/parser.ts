@@ -7,11 +7,9 @@
 
 import { Token, TokenType } from '../lexer/tokens';
 import {
-	ASTNode,
 	ProgramNode,
 	StatementNode,
 	ExpressionNode,
-	VariableDeclarationNode,
 	DeclareStatementNode,
 	AssignmentNode,
 	IfNode,
@@ -42,12 +40,8 @@ import {
 	LiteralNode,
 	ArrayAccessNode,
 	CallExpressionNode,
-	MemberAccessNode,
 	NewExpressionNode,
-	TypeCastNode,
 	ParameterNode,
-	ArrayTypeNode,
-	EOFNode
 } from './ast-nodes';
 import {
 	PseudocodeType,
@@ -94,7 +88,7 @@ export class Parser {
 	private statement(): StatementNode | null {
 		try {
 			// Skip newlines
-			while (this.match(TokenType.NEWLINE)) { } // Keep consuming newlines
+			while (this.match(TokenType.NEWLINE)); // Keep consuming newlines
 
 			if (this.isAtEnd()) {
 				return null;
@@ -190,7 +184,7 @@ export class Parser {
 		} catch (error) {
 			// Synchronize on statement boundaries
 			this.synchronize();
-			throw new SyntaxError((error as any).message ?? 'Unknown error', this.peek().line, this.peek().column);
+			throw new SyntaxError(String((error as { message: string }).message) || 'Unknown error', this.peek().line, this.peek().column);
 		}
 	}
 
@@ -203,7 +197,7 @@ export class Parser {
 
 		// Get variable name
 		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected variable name");
-		const name = nameToken.value;
+		const name = nameToken.value as string;
 
 		this.consume(TokenType.COLON, "Expected ':' after variable name, before data type");
 
@@ -221,7 +215,7 @@ export class Parser {
 				if (lowerExpr.type !== 'Literal' || typeof (lowerExpr as LiteralNode).value !== 'number') {
 					throw this.error(this.peek(), "Array bounds must be integer literals");
 				}
-				const lower = (lowerExpr as LiteralNode).value;
+				const lower = (lowerExpr as LiteralNode).value as number;
 
 				// Expect colon separator
 				this.consume(TokenType.COLON, "Expected ':' between array bounds");
@@ -231,7 +225,7 @@ export class Parser {
 				if (upperExpr.type !== 'Literal' || typeof (upperExpr as LiteralNode).value !== 'number') {
 					throw this.error(this.peek(), "Array bounds must be integer literals");
 				}
-				const upper = (upperExpr as LiteralNode).value;
+				const upper = (upperExpr as LiteralNode).value as number;
 
 				bounds.push({ lower, upper });
 
@@ -281,7 +275,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const condition = this.expression();
-		this.consume(TokenType.THEN, "Expected 'THEN' after IF condition, found " + this.peek().value);
+		this.consume(TokenType.THEN, "Expected 'THEN' after IF condition, found " + String(this.peek().value));
 		this.consumeNewline();
 
 		const thenBranch: StatementNode[] = [];
@@ -349,10 +343,8 @@ export class Parser {
 			}
 
 			const caseValues: ExpressionNode[] = [];
-			let rangeUsed = false;
 
 			if (this.peekOffset(1).type === TokenType.TO) { // a range specified
-				rangeUsed = true;
 				caseValues.push(this.expression())
 				this.consume(TokenType.TO, "Expected 'TO' when a range is used in CASE statement");
 				caseValues.push(this.expression())
@@ -407,7 +399,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const variableToken = this.consume(TokenType.IDENTIFIER, "Expected variable name in FOR loop");
-		const variable = variableToken.value;
+		const variable = variableToken.value as string;
 
 		this.consume(TokenType.ASSIGNMENT, "Expected '<-' after FOR variable");
 		const start = this.expression();
@@ -513,7 +505,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected procedure name");
-		const name = nameToken.value;
+		const name = nameToken.value as string;
 
 		this.consume(TokenType.LEFT_PAREN, "Expected '(' after procedure name");
 		const parameters = this.parseParameters();
@@ -549,7 +541,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected function name");
-		const name = nameToken.value;
+		const name = nameToken.value as string;
 
 		this.consume(TokenType.LEFT_PAREN, "Expected '(' after function name");
 		const parameters = this.parseParameters();
@@ -600,7 +592,7 @@ export class Parser {
 				}
 
 				const nameToken = this.consume(TokenType.IDENTIFIER, "Expected parameter name");
-				const name = nameToken.value;
+				const name = nameToken.value as string;
 
 				this.consume(TokenType.COLON, "Expected ':' after parameter name");
 				const dataType = this.parseDataType();
@@ -627,7 +619,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected procedure name");
-		const name = nameToken.value;
+		const name = nameToken.value as string;
 
 		this.consume(TokenType.LEFT_PAREN, "Expected '(' after procedure name");
 		const args: ExpressionNode[] = [];
@@ -736,7 +728,7 @@ export class Parser {
 		let mode: 'READ' | 'WRITE' | 'APPEND' | 'RANDOM' = 'READ';
 		if (this.match(TokenType.IDENTIFIER)) {
 			const modeToken = this.previous();
-			const modeValue = modeToken.value.toUpperCase();
+			const modeValue = (modeToken.value as string).toUpperCase();
 			if (modeValue === 'READ' || modeValue === 'WRITE' || modeValue === 'APPEND' || modeValue === 'RANDOM') {
 				mode = modeValue;
 			} else {
@@ -805,7 +797,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const fileHandle = this.primary();
-		this.consume(TokenType.TO, "Expected 'TO' after file handle");
+		this.consume(TokenType.COMMA, "Expected ',' after file handle");
 
 		const expressions: ExpressionNode[] = [];
 		if (!this.check(TokenType.NEWLINE)) {
@@ -919,7 +911,7 @@ export class Parser {
 
 			fields.push({
 				type: 'FieldDeclaration',
-				name: fieldName,
+				name: fieldName as string,
 				dataType: dataType as PseudocodeType | ArrayTypeInfo,
 				line: fieldLine,
 				column: fieldColumn
@@ -931,7 +923,7 @@ export class Parser {
 
 		return {
 			type: 'TypeDeclaration',
-			name,
+			name: name as string,
 			fields,
 			line,
 			column
@@ -951,7 +943,7 @@ export class Parser {
 		let inherits: string | undefined;
 		if (this.match(TokenType.INHERITS)) {
 			const parentToken = this.consume(TokenType.IDENTIFIER, "Expected parent class name");
-			inherits = parentToken.value;
+			inherits = parentToken.value as string;
 		}
 
 		this.consumeNewline();
@@ -979,7 +971,7 @@ export class Parser {
 
 					fields.push({
 						type: 'FieldDeclaration',
-						name: fieldName,
+						name: fieldName as string,
 						dataType: dataType as PseudocodeType | ArrayTypeInfo,
 						line: fieldNameToken.line,
 						column: fieldNameToken.column
@@ -1003,7 +995,7 @@ export class Parser {
 
 					fields.push({
 						type: 'FieldDeclaration',
-						name: fieldName,
+						name: fieldName as string,
 						dataType: dataType as PseudocodeType | ArrayTypeInfo,
 						line: fieldNameToken.line,
 						column: fieldNameToken.column
@@ -1017,7 +1009,7 @@ export class Parser {
 
 		return {
 			type: 'ClassDeclaration',
-			name,
+			name: name as string,
 			inherits,
 			fields,
 			methods,
@@ -1057,7 +1049,7 @@ export class Parser {
 
 		return {
 			type: 'MethodDeclaration',
-			name,
+			name: name as string,
 			visibility,
 			parameters,
 			returnType,
@@ -1301,7 +1293,7 @@ export class Parser {
 		if (this.match(TokenType.INTEGER_LITERAL)) {
 			return {
 				type: 'Literal',
-				value: parseInt(this.previous().value, 10),
+				value: parseInt(this.previous().value as string, 10),
 				dataType: PseudocodeType.INTEGER,
 				line: this.previous().line,
 				column: this.previous().column
@@ -1311,7 +1303,7 @@ export class Parser {
 		if (this.match(TokenType.REAL_LITERAL)) {
 			return {
 				type: 'Literal',
-				value: parseFloat(this.previous().value),
+				value: parseFloat(this.previous().value as string),
 				dataType: PseudocodeType.REAL,
 				line: this.previous().line,
 				column: this.previous().column
@@ -1431,15 +1423,15 @@ export class Parser {
 			} as NewExpressionNode;
 		}
 
-		throw this.error(this.peek(), "Expected expression, found " + this.peek().value);
+		throw this.error(this.peek(), "Expected expression, found " + String(this.peek().value));
 	}
 
 	/**
 	 * Parse a data type
 	 */
 	private parseDataType(): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo {
-		const token = this.consumeLike([TokenType.STRING, TokenType.CHAR, TokenType.INTEGER, TokenType.REAL, TokenType.BOOLEAN, TokenType.DATE], `Expected data type, found "${this.peek().value}"`);
-		const typeName = token.value.toUpperCase();
+		const token = this.consumeLike([TokenType.STRING, TokenType.CHAR, TokenType.INTEGER, TokenType.REAL, TokenType.BOOLEAN, TokenType.DATE], `Expected data type, found "${String(this.peek().value)}"`);
+		const typeName = (token.value as string).toUpperCase();
 
 		// Check for built-in types
 		switch (typeName) {
