@@ -34,6 +34,8 @@ export enum TokenType {
 	OF = 'OF',
 	TYPE = 'TYPE',
 	ENDTYPE = 'ENDTYPE',
+	DEFINE = 'DEFINE',
+	SET = 'SET',
 	CLASS = 'CLASS',
 	ENDCLASS = 'ENDCLASS',
 	INHERITS = 'INHERITS',
@@ -55,6 +57,7 @@ export enum TokenType {
 	GETRECORD = 'GETRECORD',
 	PUTRECORD = 'PUTRECORD',
 	EOF = 'EOF',
+	IN = 'IN',
 	FROM = 'FROM',
 
 	// Data types
@@ -102,6 +105,7 @@ export enum TokenType {
 	RIGHT_BRACKET = 'RIGHT_BRACKET',
 	COMMA = 'COMMA',
 	COLON = 'COLON',
+	DOT = 'DOT',
 
 	// Special
 	COMMENT = 'COMMENT',
@@ -138,6 +142,8 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
 	'OF': TokenType.OF,
 	'TYPE': TokenType.TYPE,
 	'ENDTYPE': TokenType.ENDTYPE,
+	'DEFINE': TokenType.DEFINE,
+	'SET': TokenType.SET,
 	'CLASS': TokenType.CLASS,
 	'ENDCLASS': TokenType.ENDCLASS,
 	'INHERITS': TokenType.INHERITS,
@@ -159,6 +165,7 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
 	'GETRECORD': TokenType.GETRECORD,
 	'PUTRECORD': TokenType.PUTRECORD,
 	'EOF': TokenType.EOF,
+	'IN': TokenType.IN,
 	'FROM': TokenType.FROM,
 	'INTEGER': TokenType.INTEGER,
 	'REAL': TokenType.REAL,
@@ -206,6 +213,7 @@ export const DELIMITER_TOKENS: Record<string, TokenType> = {
 	']': TokenType.RIGHT_BRACKET,
 	',': TokenType.COMMA,
 	':': TokenType.COLON
+	,'.': TokenType.DOT
 };
 
 /**

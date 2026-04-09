@@ -44,14 +44,15 @@ export class Lexer {
 	private scanToken(): void {
 		const c = this.advance();
 
-		switch (c) {
-			// Single-character tokens
-			case '(': this.addToken(TokenType.LEFT_PAREN); break;
-			case ')': this.addToken(TokenType.RIGHT_PAREN); break;
-			case '[': this.addToken(TokenType.LEFT_BRACKET); break;
-			case ']': this.addToken(TokenType.RIGHT_BRACKET); break;
-			case ',': this.addToken(TokenType.COMMA); break;
-			case ':': this.addToken(TokenType.COLON); break;
+			switch (c) {
+				// Single-character tokens
+				case '(': this.addToken(TokenType.LEFT_PAREN); break;
+				case ')': this.addToken(TokenType.RIGHT_PAREN); break;
+				case '[': this.addToken(TokenType.LEFT_BRACKET); break;
+				case ']': this.addToken(TokenType.RIGHT_BRACKET); break;
+				case ',': this.addToken(TokenType.COMMA); break;
+				case ':': this.addToken(TokenType.COLON); break;
+				case '.': this.addToken(TokenType.DOT); break;
 
 			// One or two character tokens
 			case '+': this.addToken(TokenType.PLUS); break;

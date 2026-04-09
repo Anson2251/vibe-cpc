@@ -9,6 +9,9 @@ import {
 	PseudocodeType,
 	ArrayTypeInfo,
 	UserDefinedTypeInfo,
+	EnumTypeInfo,
+	SetTypeInfo,
+	TypeInfo,
 	VariableInfo,
 	// ParameterMode,
 	// ParameterInfo,
@@ -24,7 +27,7 @@ import { VariableAtom, VariableAtomFactory } from './variable-atoms';
  */
 export interface RuntimeValue {
 	value: unknown;
-	type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	type: TypeInfo;
 }
 
 /**
@@ -120,7 +123,7 @@ export interface RoutineInfo extends RoutineSignature {
 	isBuiltIn?: boolean;
 	implementation?: (args: unknown[], context: ExecutionContext) => unknown;
 	// Override returnType to allow complex types
-	returnType?: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	returnType?: TypeInfo;
 }
 
 /**
@@ -140,7 +143,7 @@ export class Environment {
 	/**
 	 * Define a variable in the current environment
 	 */
-	define(name: string, type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo, value: unknown, isConstant: boolean = false): void {
+	define(name: string, type: TypeInfo, value: unknown, isConstant: boolean = false): void {
 		if (this.variables.has(name)) {
 			throw new RuntimeError(`Variable '${name}' already declared in this scope`);
 		}
@@ -168,7 +171,7 @@ export class Environment {
 	/**
 	 * Get the type of a variable
 	 */
-	getType(name: string): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo {
+	getType(name: string): TypeInfo {
 		if (this.variables.has(name)) {
 			const atom = this.variables.get(name)!;
 			return atom.type;
@@ -312,10 +315,14 @@ export class Environment {
 	/**
 	 * Validate that a value matches the expected type
 	 */
-	private validateType(value: unknown, expectedType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo): void {
+	private validateType(value: unknown, expectedType: TypeInfo): void {
 		if (typeof expectedType === 'string') {
 			// Simple type
 			this.validateSimpleType(value, expectedType);
+		} else if (this.isEnumType(expectedType)) {
+			this.validateEnumType(value, expectedType);
+		} else if (this.isSetType(expectedType)) {
+			this.validateSetType(value, expectedType);
 		} else if ('elementType' in expectedType) {
 			// Array type
 			this.validateArrayType(value, expectedType);
@@ -401,6 +408,30 @@ export class Environment {
 		}
 	}
 
+	private validateEnumType(value: unknown, expectedType: EnumTypeInfo): void {
+		if (typeof value !== 'string' || !expectedType.values.includes(value)) {
+			throw new RuntimeError(`Expected enum '${expectedType.name}' value`);
+		}
+	}
+
+	private validateSetType(value: unknown, expectedType: SetTypeInfo): void {
+		if (!(value instanceof Set)) {
+			throw new RuntimeError(`Expected SET '${expectedType.name}', got ${typeof value}`);
+		}
+
+		for (const item of value.values()) {
+			this.validateSimpleType(item, expectedType.elementType);
+		}
+	}
+
+	private isEnumType(type: TypeInfo): type is EnumTypeInfo {
+		return typeof type === 'object' && type !== null && 'kind' in type && type.kind === 'ENUM';
+	}
+
+	private isSetType(type: TypeInfo): type is SetTypeInfo {
+		return typeof type === 'object' && type !== null && 'kind' in type && type.kind === 'SET';
+	}
+
 	/**
 	 * Get the dimensions of an array
 	 */
@@ -462,7 +493,7 @@ export class Environment {
 	/**
 	 * Define a variable (alias for define)
 	 */
-	defineVariable(name: string, type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo, value: unknown, isConstant: boolean = false): void {
+	defineVariable(name: string, type: TypeInfo, value: unknown, isConstant: boolean = false): void {
 		this.define(name, type, value, isConstant);
 	}
 

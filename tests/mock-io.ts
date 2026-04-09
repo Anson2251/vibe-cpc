@@ -26,6 +26,9 @@ export class MockIO implements IOInterface {
 
 	// File methods
 	async readFile(path: string): Promise<string> {
+		if (this.writtenFiles.has(path)) {
+			return this.writtenFiles.get(path)!;
+		}
 		if (this.fileContents.has(path)) {
 			return this.fileContents.get(path)!;
 		}
@@ -34,11 +37,14 @@ export class MockIO implements IOInterface {
 
 	async writeFile(path: string, data: string): Promise<void> {
 		this.writtenFiles.set(path, data);
+		this.fileContents.set(path, data);
 	}
 
 	async appendFile(path: string, data: string): Promise<void> {
 		const existing = this.writtenFiles.get(path) || this.fileContents.get(path) || '';
-		this.writtenFiles.set(path, existing + data);
+		const updated = existing + data;
+		this.writtenFiles.set(path, updated);
+		this.fileContents.set(path, updated);
 	}
 
 	async fileExists(path: string): Promise<boolean> {

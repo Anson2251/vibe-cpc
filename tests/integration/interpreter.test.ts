@@ -276,6 +276,243 @@ describe('Interpreter Integration Tests', () => {
 			const result = await testRunner.runCode(code);
 			expectOutput(result, ['1', '2', '3', '4']);
 		});
+
+		test('should reject out-of-bounds array access with readable error', async () => {
+			const code = `
+        DECLARE numbers : ARRAY[1:2] OF INTEGER
+        numbers[1] <- 10
+        OUTPUT numbers[3]
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, 'Array index out of bounds');
+		});
+
+		test('should reject assigning wrong type into integer array', async () => {
+			const code = `
+        DECLARE numbers : ARRAY[1:2] OF INTEGER
+        numbers[1] <- "abc"
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, 'Expected INTEGER');
+		});
+
+		test('should reject non-integer array index with readable error', async () => {
+			const code = `
+        DECLARE numbers : ARRAY[1:2] OF INTEGER
+        numbers[1.5] <- 7
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, 'Array index must be INTEGER');
+		});
+	});
+
+	describe('User-defined types', () => {
+		test('should support record type declaration and field assignment', async () => {
+			const code = `
+        TYPE StudentRecord
+          DECLARE LastName : STRING
+          DECLARE YearGroup : INTEGER
+        ENDTYPE
+
+        DECLARE Pupil : StudentRecord
+        Pupil.LastName <- "Johnson"
+        Pupil.YearGroup <- 6
+        OUTPUT Pupil.LastName
+        OUTPUT Pupil.YearGroup
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['Johnson', '6']);
+		});
+
+		test('should reject invalid field assignment type with readable error', async () => {
+			const code = `
+        TYPE StudentRecord
+          DECLARE LastName : STRING
+          DECLARE YearGroup : INTEGER
+        ENDTYPE
+
+        DECLARE Pupil : StudentRecord
+        Pupil.YearGroup <- "Six"
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, 'Expected INTEGER');
+		});
+
+		test('should reject unknown record field with readable error', async () => {
+			const code = `
+        TYPE StudentRecord
+          DECLARE LastName : STRING
+        ENDTYPE
+
+        DECLARE Pupil : StudentRecord
+        Pupil.DoesNotExist <- "X"
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, "Unknown field 'DoesNotExist'");
+		});
+
+		test('should reject unknown user-defined type with readable error', async () => {
+			const code = `
+        DECLARE Pupil : MissingRecord
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, "Unknown type 'MissingRecord'");
+		});
+
+		test('should support nested user-defined type member access and assignment', async () => {
+			const code = `
+        TYPE AddressRecord
+          DECLARE HouseNumber : INTEGER
+        ENDTYPE
+
+        TYPE StudentRecord
+          DECLARE Name : STRING
+          DECLARE Address : AddressRecord
+        ENDTYPE
+
+        DECLARE Pupil : StudentRecord
+        Pupil.Name <- "Ali"
+        Pupil.Address.HouseNumber <- 12
+        OUTPUT Pupil.Name
+        OUTPUT Pupil.Address.HouseNumber
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['Ali', '12']);
+		});
+
+		test('should reject unknown nested field with readable error', async () => {
+			const code = `
+        TYPE AddressRecord
+          DECLARE HouseNumber : INTEGER
+        ENDTYPE
+
+        TYPE StudentRecord
+          DECLARE Address : AddressRecord
+        ENDTYPE
+
+        DECLARE Pupil : StudentRecord
+        Pupil.Address.Zip <- 12345
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, "Unknown field 'Zip'");
+		});
+	});
+
+	describe('BYREF semantics', () => {
+		test('should propagate BYREF scalar updates back to caller', async () => {
+			const code = `
+        PROCEDURE Increment(BYREF Value : INTEGER)
+          Value <- Value + 1
+        ENDPROCEDURE
+
+        DECLARE X : INTEGER
+        X <- 10
+        CALL Increment(X)
+        OUTPUT X
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, '11');
+		});
+
+		test('should reject BYREF call with non-variable argument', async () => {
+			const code = `
+        PROCEDURE Increment(BYREF Value : INTEGER)
+          Value <- Value + 1
+        ENDPROCEDURE
+
+        CALL Increment(10)
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, 'requires a variable identifier argument');
+		});
+
+		test('should propagate BYREF user-defined type updates back to caller', async () => {
+			const code = `
+        TYPE StudentRecord
+          DECLARE YearGroup : INTEGER
+        ENDTYPE
+
+        PROCEDURE Promote(BYREF Pupil : StudentRecord)
+          Pupil.YearGroup <- Pupil.YearGroup + 1
+        ENDPROCEDURE
+
+        DECLARE S : StudentRecord
+        S.YearGroup <- 5
+        CALL Promote(S)
+        OUTPUT S.YearGroup
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, '6');
+		});
+	});
+
+	describe('Enum and Set types', () => {
+		test('should support enum declaration and assignment', async () => {
+			const code = `
+        TYPE Season = (Spring, Summer, Autumn, Winter)
+        DECLARE Current : Season
+        Current <- Summer
+        OUTPUT Current
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Summer');
+		});
+
+		test('should reject invalid enum assignment with readable error', async () => {
+			const code = `
+        TYPE Season = (Spring, Summer, Autumn, Winter)
+        DECLARE Current : Season
+        Current <- Monsoon
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, "Expected enum 'Season' value");
+		});
+
+		test('should support set declaration and IN operator', async () => {
+			const code = `
+        TYPE LetterSet = SET OF CHAR
+        DEFINE Vowels('A','E','I','O','U') : LetterSet
+        IF 'A' IN Vowels THEN
+          OUTPUT "yes"
+        ENDIF
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'yes');
+		});
+
+		test('should reject unknown set type in DEFINE', async () => {
+			const code = `
+        DEFINE Vowels('A','E','I') : MissingSet
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, "Unknown set type 'MissingSet'");
+		});
+
+		test('should reject wrong element type in set values', async () => {
+			const code = `
+        TYPE LetterSet = SET OF CHAR
+        DEFINE Vowels('A', 2) : LetterSet
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectError(result, 'Expected CHAR');
+		});
 	});
 
 	describe('File operations', () => {
@@ -294,6 +531,43 @@ describe('Interpreter Integration Tests', () => {
 
 			const result = await testRunner.runCode(code);
 			expectOutput(result, 'Hello, file!');
+		});
+
+		test('should support EOF loop over text files', async () => {
+			const code = `
+        DECLARE line : STRING
+        OPENFILE "input.txt" FOR WRITE
+        WRITEFILE "input.txt", "Alpha"
+        WRITEFILE "input.txt", "Beta"
+        CLOSEFILE "input.txt"
+
+        OPENFILE "input.txt" FOR READ
+        WHILE NOT EOF("input.txt")
+          READFILE "input.txt", line
+          OUTPUT line
+        ENDWHILE
+        CLOSEFILE "input.txt"
+      `;
+			const result = await testRunner.runCode(code);
+			expectOutput(result, ['Alpha', 'Beta']);
+		});
+
+		test('should support random file seek, putrecord and getrecord', async () => {
+			const code = `
+        DECLARE rec : STRING
+        OPENFILE "records.dat" FOR RANDOM
+        SEEK "records.dat", 0
+        PUTRECORD "records.dat", "First"
+        SEEK "records.dat", 1
+        PUTRECORD "records.dat", "Second"
+        SEEK "records.dat", 1
+        GETRECORD "records.dat", rec
+        OUTPUT rec
+        CLOSEFILE "records.dat"
+      `;
+
+			const result = await testRunner.runCode(code);
+			expectOutput(result, 'Second');
 		});
 	});
 

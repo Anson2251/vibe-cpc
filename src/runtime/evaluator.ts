@@ -27,10 +27,11 @@ import {
 	CloseFileNode,
 	ReadFileNode,
 	WriteFileNode,
-	// SeekNode,
+	SeekNode,
 	GetRecordNode,
 	PutRecordNode,
 	TypeDeclarationNode,
+	SetDeclarationNode,
 	ClassDeclarationNode,
 	BinaryExpressionNode,
 	UnaryExpressionNode,
@@ -55,21 +56,25 @@ import {
 	PseudocodeType,
 	ArrayTypeInfo,
 	UserDefinedTypeInfo,
+	EnumTypeInfo,
+	SetTypeInfo,
+	TypeInfo,
 	ParameterMode
 } from '../types';
 
 import {
 	RuntimeError,
 	DivisionByZeroError,
-	IndexError,
-	FileIOError
+	IndexError
 } from '../errors';
 
 import builtInFunctions from './builtin-functions';
+import { RuntimeFileManager } from './file-manager';
+import { FileOperationEvaluator } from './file-operations-evaluator';
 
 import { Environment, ExecutionContext, RoutineInfo } from './environment';
 import { IOInterface } from '../io/io-interface';
-import { VariableAtom, ArrayAtom, UserDefinedAtom } from './variable-atoms';
+import { VariableAtom, ArrayAtom, UserDefinedAtom, VariableAtomFactory } from './variable-atoms';
 
 /**
  * Evaluator class for executing AST nodes
@@ -78,12 +83,22 @@ export class Evaluator {
 	private environment: Environment;
 	context: ExecutionContext;
 	private io: IOInterface;
+	private fileManager: RuntimeFileManager;
+	private fileOperations: FileOperationEvaluator;
 	private globalRoutines: Map<string, RoutineInfo> = new Map();
+	private userDefinedTypes: Map<string, UserDefinedTypeInfo> = new Map();
+	private enumTypes: Map<string, EnumTypeInfo> = new Map();
+	private setTypes: Map<string, SetTypeInfo> = new Map();
 
 	constructor(io: IOInterface) {
 		this.io = io;
 		this.environment = new Environment();
 		this.context = new ExecutionContext(this.environment);
+		this.fileManager = new RuntimeFileManager(io);
+		this.fileOperations = new FileOperationEvaluator(this.fileManager, {
+			evaluateExpression: (expression) => this.evaluate(expression),
+			assignToTarget: (target, value, line, column) => this.assignValueToTarget(target, value, line, column)
+		});
 		this.initializeBuiltInRoutines();
 	}
 
@@ -117,7 +132,7 @@ export class Evaluator {
 			this.context.currentColumn = node.column;
 		}
 
-		switch (node.type) {
+			switch (node.type) {
 			case 'VariableDeclaration':
 				return await this.evaluateVariableDeclaration(node as VariableDeclarationNode);
 
@@ -161,29 +176,31 @@ export class Evaluator {
 				return await this.evaluateReturn(node as ReturnNode);
 
 			case 'OpenFile':
-				return await this.evaluateOpenFile(node as OpenFileNode);
+				return await this.fileOperations.openFile(node as OpenFileNode);
 
 			case 'CloseFile':
-				return await this.evaluateCloseFile(node as CloseFileNode);
+				return await this.fileOperations.closeFile(node as CloseFileNode);
 
 			case 'ReadFile':
-				return await this.evaluateReadFile(node as ReadFileNode);
+				return await this.fileOperations.readFile(node as ReadFileNode);
 
 			case 'WriteFile':
-				return await this.evaluateWriteFile(node as WriteFileNode);
+				return await this.fileOperations.writeFile(node as WriteFileNode);
 
 			case 'Seek':
-				throw new RuntimeError('Seek statements are not implemented yet.')
-			// return await this.evaluateSeek(node as SeekNode);
+				return await this.fileOperations.seek(node as SeekNode);
 
 			case 'GetRecord':
-				return await this.evaluateGetRecord(node as GetRecordNode);
+				return await this.fileOperations.getRecord(node as GetRecordNode);
 
 			case 'PutRecord':
-				return await this.evaluatePutRecord(node as PutRecordNode);
+				return await this.fileOperations.putRecord(node as PutRecordNode);
 
 			case 'TypeDeclaration':
 				return this.evaluateTypeDeclaration(node as TypeDeclarationNode);
+
+			case 'SetDeclaration':
+				return await this.evaluateSetDeclaration(node as SetDeclarationNode);
 
 			case 'ClassDeclaration':
 				return this.evaluateClassDeclaration(node as ClassDeclarationNode);
@@ -224,20 +241,21 @@ export class Evaluator {
 	 * Evaluate a DECLARE statement
 	 */
 	private async evaluateDeclareStatement(node: DeclareStatementNode): Promise<void> {
+		const resolvedType = this.resolveType(node.dataType, node.line, node.column);
 		let initialValue: unknown;
 
 		if (node.initialValue) {
 			initialValue = await this.evaluate(node.initialValue);
 		} else {
 			// Set default value based on type
-			if (typeof node.dataType === 'string') {
-				switch (node.dataType) {
+			if (typeof resolvedType === 'string') {
+				switch (resolvedType) {
 					case PseudocodeType.INTEGER:
 					case PseudocodeType.REAL:
 						initialValue = 0;
 						break;
 					case PseudocodeType.CHAR:
-						initialValue = '';
+						initialValue = ' ';
 						break;
 					case PseudocodeType.STRING:
 						initialValue = '';
@@ -249,40 +267,45 @@ export class Evaluator {
 						initialValue = new Date();
 						break;
 				}
-			} else if ('elementType' in node.dataType) {
+			} else if ('elementType' in resolvedType && !('kind' in resolvedType)) {
 				// Array type - initialize with empty array
-				initialValue = this.createEmptyArray(node.dataType);
-			} else if ('fields' in node.dataType) {
+				initialValue = this.createEmptyArray(resolvedType);
+			} else if ('kind' in resolvedType && resolvedType.kind === 'ENUM') {
+				initialValue = resolvedType.values[0] ?? '';
+			} else if ('kind' in resolvedType && resolvedType.kind === 'SET') {
+				initialValue = new Set();
+			} else if ('fields' in resolvedType) {
 				// User-defined type - initialize with empty object
 				initialValue = {};
-				const userDefinedType = node.dataType;
+				const userDefinedType = resolvedType;
 				for (const fieldName of Object.keys(userDefinedType.fields)) {
-					(initialValue as Record<string, unknown>)[fieldName] = null;
+					(initialValue as Record<string, unknown>)[fieldName] = this.getDefaultValueForFieldType(userDefinedType.fields[fieldName]);
 				}
 			}
 		}
 
-		this.environment.define(node.name, node.dataType, initialValue, node.isConstant);
+		this.environment.define(node.name, resolvedType, initialValue, node.isConstant);
 	}
 
 	/**
 	 * Evaluate a variable declaration
 	 */
 	private async evaluateVariableDeclaration(node: VariableDeclarationNode): Promise<void> {
+		const resolvedType = this.resolveType(node.dataType, node.line, node.column);
 		let initialValue: unknown;
 
 		if (node.initialValue) {
 			initialValue = await this.evaluate(node.initialValue);
 		} else {
 			// Set default value based on type
-			if (typeof node.dataType === 'string') {
-				switch (node.dataType) {
+			if (typeof resolvedType === 'string') {
+				switch (resolvedType) {
 					case PseudocodeType.INTEGER:
 					case PseudocodeType.REAL:
 						initialValue = 0;
 						break;
 					case PseudocodeType.CHAR:
-						initialValue = '';
+						initialValue = ' ';
 						break;
 					case PseudocodeType.STRING:
 						initialValue = '';
@@ -294,27 +317,49 @@ export class Evaluator {
 						initialValue = new Date();
 						break;
 				}
-			} else if ('elementType' in node.dataType) {
+			} else if ('elementType' in resolvedType && !('kind' in resolvedType)) {
 				// Array type - initialize with empty array
-				initialValue = this.createEmptyArray(node.dataType);
-			} else if ('fields' in node.dataType) {
+				initialValue = this.createEmptyArray(resolvedType);
+			} else if ('kind' in resolvedType && resolvedType.kind === 'ENUM') {
+				initialValue = resolvedType.values[0] ?? '';
+			} else if ('kind' in resolvedType && resolvedType.kind === 'SET') {
+				initialValue = new Set();
+			} else if ('fields' in resolvedType) {
 				// User-defined type - initialize with empty object
 				initialValue = {};
-				const userDefinedType = node.dataType;
+				const userDefinedType = resolvedType;
 				for (const fieldName of Object.keys(userDefinedType.fields)) {
-					(initialValue as Record<string, unknown>)[fieldName] = null;
+					(initialValue as Record<string, unknown>)[fieldName] = this.getDefaultValueForFieldType(userDefinedType.fields[fieldName]);
 				}
 			}
 		}
 
-		this.environment.define(node.name, node.dataType, initialValue, node.isConstant);
+		this.environment.define(node.name, resolvedType, initialValue, node.isConstant);
 	}
 
 	/**
 	 * Evaluate an assignment statement
 	 */
 	private async evaluateAssignment(node: AssignmentNode): Promise<void> {
-		const value = await this.evaluate(node.value);
+		let value: unknown;
+
+		if (node.target.type === 'Identifier') {
+			const identifier = node.target as IdentifierNode;
+			const targetType = this.environment.getType(identifier.name);
+			if (
+				typeof targetType === 'object' &&
+				targetType !== null &&
+				'kind' in targetType &&
+				targetType.kind === 'ENUM' &&
+				node.value.type === 'Identifier'
+			) {
+				value = (node.value as IdentifierNode).name;
+			} else {
+				value = await this.evaluate(node.value);
+			}
+		} else {
+			value = await this.evaluate(node.value);
+		}
 
 		if (node.target.type === 'Identifier') {
 			const identifier = node.target as IdentifierNode;
@@ -324,20 +369,43 @@ export class Evaluator {
 			const array = await this.evaluate(arrayAccess.array);
 			const indices = await Promise.all(arrayAccess.indices.map(index => this.evaluate(index)));
 
+			if (arrayAccess.array.type === 'Identifier') {
+				const typeInfo = this.environment.getType((arrayAccess.array as IdentifierNode).name);
+				if (typeof typeInfo === 'object' && typeInfo !== null && 'elementType' in typeInfo) {
+					VariableAtomFactory.createAtom(typeInfo.elementType, value);
+				}
+			}
+
 			// Set the array element at the specified indices
 			this.setArrayElement(array, indices as number[], value);
 		} else if (node.target.type === 'MemberAccess') {
 			const memberAccess = node.target as MemberAccessNode;
+			const declaredParentType = this.resolveMemberPathType(memberAccess.object);
+			if (declaredParentType) {
+				const fieldType = declaredParentType.fields[memberAccess.field];
+				if (fieldType === undefined) {
+					throw new RuntimeError(`Unknown field '${memberAccess.field}' on type '${declaredParentType.name}'`, node.line, node.column);
+				}
+				VariableAtomFactory.createAtom(fieldType, value);
+			}
 			const object = await this.evaluate(memberAccess.object);
 
 			// Handle UserDefinedAtom
 			if (object instanceof VariableAtom && typeof object.type === 'object' && object.type !== null && 'fields' in object.type) {
 				const userDefinedAtom = object as UserDefinedAtom;
 				const objectValue = userDefinedAtom.value as Record<string, unknown>;
+				const fieldType = userDefinedAtom.type.fields[memberAccess.field];
+				if (fieldType === undefined) {
+					throw new RuntimeError(`Unknown field '${memberAccess.field}' on type '${userDefinedAtom.type.name}'`, node.line, node.column);
+				}
+				VariableAtomFactory.createAtom(fieldType, value);
 				objectValue[memberAccess.field] = value;
 			} else if (object === null || typeof object !== 'object') {
 				throw new RuntimeError('Cannot access property of non-object', node.line, node.column);
 			} else {
+				if (declaredParentType && !(memberAccess.field in (object as Record<string, unknown>))) {
+					throw new RuntimeError(`Unknown field '${memberAccess.field}' on type '${declaredParentType.name}'`, node.line, node.column);
+				}
 				(object as Record<string, unknown>)[memberAccess.field] = value;
 			}
 		} else {
@@ -514,7 +582,7 @@ export class Evaluator {
 			name: node.name,
 			parameters: node.parameters.map(param => ({
 				name: param.name,
-				type: param.dataType,
+				type: this.resolveType(param.dataType, param.line, param.column),
 				mode: param.mode
 			}))
 		};
@@ -536,10 +604,10 @@ export class Evaluator {
 			name: node.name,
 			parameters: node.parameters.map(param => ({
 				name: param.name,
-				type: param.dataType,
+				type: this.resolveType(param.dataType, param.line, param.column),
 				mode: param.mode
 			})),
-			returnType: node.returnType
+			returnType: this.resolveType(node.returnType, node.line, node.column)
 		};
 
 		const routineInfo: RoutineInfo = {
@@ -626,180 +694,48 @@ export class Evaluator {
 		this.context.shouldReturn = true;
 	}
 
-	/**
-	 * Evaluate an OPENFILE statement
-	 */
-	private async evaluateOpenFile(node: OpenFileNode): Promise<void> {
-		const filename = await this.evaluate(node.filename);
-		const handleExpression = node.fileHandle;
-
-		if (handleExpression.type !== 'Identifier') {
-			throw new RuntimeError('File handle must be an identifier', node.line, node.column);
+	private async assignValueToTarget(target: ExpressionNode, value: unknown, line?: number, column?: number): Promise<void> {
+		if (target.type === 'Identifier') {
+			const identifier = target as IdentifierNode;
+			this.environment.assign(identifier.name, value);
+			return;
 		}
 
-		const handleVariable = handleExpression as IdentifierNode;
-
-		try {
-			switch (node.mode) {
-				case 'READ':
-					await this.io.openRandomFile(String(filename));
-					break;
-				case 'WRITE':
-					// For write mode, we'll create a new file or truncate existing one
-					await this.io.writeFile(String(filename), '');
-					await this.io.openRandomFile(String(filename));
-					break;
-				case 'APPEND':
-					// For append mode, we'll open the file and seek to the end
-					await this.io.appendFile(String(filename), '');
-					await this.io.openRandomFile(String(filename));
-					break;
-				case 'RANDOM':
-					await this.io.openRandomFile(String(filename));
-					break;
-				default:
-					throw new RuntimeError(`Invalid file mode: ${String(node.mode)}`, node.line, node.column);
-			}
-
-			// Store the file handle in the environment
-			this.environment.allocateFileHandle(handleVariable.name);
-		} catch (error) {
-			throw new FileIOError(`Failed to open file '${String(filename)}': ${error instanceof Error ? error.message : 'Unknown error'}`, node.line, node.column);
-		}
-	}
-
-	/**
-	 * Evaluate a CLOSEFILE statement
-	 */
-	private async evaluateCloseFile(node: CloseFileNode): Promise<void> {
-		const handleExpression = node.fileHandle;
-
-		if (handleExpression.type !== 'Identifier') {
-			throw new RuntimeError('File handle must be an identifier', node.line, node.column);
+		if (target.type === 'ArrayAccess') {
+			const arrayAccess = target as ArrayAccessNode;
+			const array = await this.evaluate(arrayAccess.array);
+			const indices = await Promise.all(arrayAccess.indices.map(index => this.evaluate(index)));
+			this.setArrayElement(array, indices as number[], value);
+			return;
 		}
 
-		const handleVariable = handleExpression as IdentifierNode;
-
-		try {
-			await this.io.closeFile(this.environment.getFileHandle(handleVariable.name));
-			this.environment.releaseFileHandle(handleVariable.name);
-		} catch (error) {
-			throw new FileIOError(`Failed to close file: ${String(error)}`, node.line, node.column);
-		}
-	}
-
-	/**
-	 * Evaluate a READFILE statement
-	 */
-	private async evaluateReadFile(node: ReadFileNode): Promise<void> {
-		const handleVariable = node.fileHandle as IdentifierNode;
-
-		try {
-			const content = await this.io.readFile(this.environment.getFilename(handleVariable.name));
-
-			if (node.target.type === 'Identifier') {
-				const identifier = node.target as IdentifierNode;
-				this.environment.assign(identifier.name, content);
-			} else if (node.target.type === 'ArrayAccess') {
-				const arrayAccess = node.target as ArrayAccessNode;
-				const array = await this.evaluate(arrayAccess.array);
-				const indices = await Promise.all(arrayAccess.indices.map(index => this.evaluate(index)));
-
-				// Set the array element at the specified indices
-				this.setArrayElement(array, indices as number[], content);
-			} else {
-				throw new RuntimeError('Invalid read target', node.line, node.column);
-			}
-		} catch (error) {
-			throw new FileIOError(`Failed to read file: ${String(error)}`, node.line, node.column);
-		}
-	}
-
-	/**
-	 * Evaluate a WRITEFILE statement
-	 */
-	private async evaluateWriteFile(node: WriteFileNode): Promise<void> {
-		const handleVariable = node.fileHandle as IdentifierNode;
-
-		try {
-			const content: string[] = [];
-
-			for (const expression of node.expressions) {
-				const value = await this.evaluate(expression);
-				content.push(String(value));
-			}
-
-			await this.io.writeFile(this.environment.getFilename(handleVariable.name), content.join(''));
-		} catch (error) {
-			throw new FileIOError(`Failed to write file: ${String(error)}`, node.line, node.column);
-		}
-	}
-
-	// /**
-	//  * Evaluate a SEEK statement
-	//  */
-	// private async evaluateSeek(node: SeekNode): Promise<void> {
-	// 	return;
-	// 	const handleVariable = node.fileHandle as IdentifierNode;
-	// 	const position = await this.evaluate(node.position);
-
-	// 	try {
-	// 		// This is a simplified implementation
-	// 		// In a real implementation, we would seek to the specified position
-	// 		console.log(`Seeking to position ${String(position)} in file ${handleVariable.name}`);
-	// 	} catch (error) {
-	// 		throw new FileIOError(`Failed to seek in file: ${String(error)}`, node.line, node.column);
-	// 	}
-	// }
-
-	/**
-	 * Evaluate a GETRECORD statement
-	 */
-	private async evaluateGetRecord(node: GetRecordNode): Promise<void> {
-		const handleVariable = node.fileHandle as IdentifierNode;
-		const position = await this.evaluate(node.position);
-
-		try {
-			const record = await this.io.readRecord(this.environment.getFileHandle(handleVariable.name), Number(position));
-
-			if (node.target.type === 'Identifier') {
-				const identifier = node.target as IdentifierNode;
-				this.environment.assign(identifier.name, record);
-			} else if (node.target.type === 'ArrayAccess') {
-				const arrayAccess = node.target as ArrayAccessNode;
-				const array = await this.evaluate(arrayAccess.array);
-				const indices = await Promise.all(arrayAccess.indices.map(index => this.evaluate(index)));
-
-				// Set the array element at the specified indices
-				this.setArrayElement(array, indices as number[], record);
-			} else {
-				throw new RuntimeError('Invalid get record target', node.line, node.column);
-			}
-		} catch (error) {
-			throw new FileIOError(`Failed to get record: ${String(error)}`, node.line, node.column);
-		}
-	}
-
-	/**
-	 * Evaluate a PUTRECORD statement
-	 */
-	private async evaluatePutRecord(node: PutRecordNode): Promise<void> {
-		const handleVariable = node.fileHandle as IdentifierNode;
-		const position = await this.evaluate(node.position);
-		const source = await this.evaluate(node.source);
-
-		try {
-			const fileHandle = this.environment.getFileHandle(handleVariable.name);
-			await this.io.writeRecord(fileHandle, Number(position), String(source));
-		} catch (error) {
-			throw new FileIOError(`Failed to put record: ${String(error)}`, node.line, node.column);
-		}
+		throw new RuntimeError('Invalid assignment target', line, column);
 	}
 
 	/**
 	 * Evaluate a TYPE declaration
 	 */
 	private evaluateTypeDeclaration(node: TypeDeclarationNode): void {
+		if (node.setElementType) {
+			const setType: SetTypeInfo = {
+				kind: 'SET',
+				name: node.name,
+				elementType: node.setElementType
+			};
+			this.setTypes.set(node.name.toUpperCase(), setType);
+			return;
+		}
+
+		if (node.enumValues && node.enumValues.length > 0) {
+			const enumType: EnumTypeInfo = {
+				kind: 'ENUM',
+				name: node.name,
+				values: node.enumValues
+			};
+			this.enumTypes.set(node.name.toUpperCase(), enumType);
+			return;
+		}
+
 		// Create a user-defined type
 		const userType: UserDefinedTypeInfo = {
 			name: node.name,
@@ -810,8 +746,22 @@ export class Evaluator {
 			userType.fields[field.name] = field.dataType;
 		}
 
-		// Store the type definition in the environment
-		this.environment.define(node.name, userType, {}, true);
+		this.userDefinedTypes.set(node.name.toUpperCase(), userType);
+	}
+
+	private async evaluateSetDeclaration(node: SetDeclarationNode): Promise<void> {
+		const setType = this.setTypes.get(node.setTypeName.toUpperCase());
+		if (!setType) {
+			throw new RuntimeError(`Unknown set type '${node.setTypeName}'`, node.line, node.column);
+		}
+
+		const values = new Set<unknown>();
+		for (const expr of node.values) {
+			const value = await this.evaluate(expr);
+			values.add(value);
+		}
+
+		this.environment.define(node.name, setType, values, false);
 	}
 
 	/**
@@ -898,6 +848,12 @@ export class Evaluator {
 			case 'OR':
 				return this.isTruthy(left) || this.isTruthy(right);
 
+			case 'IN':
+				if (!(right instanceof Set)) {
+					throw new RuntimeError('Right operand of IN must be a SET', node.line, node.column);
+				}
+				return right.has(left);
+
 			default:
 				throw new RuntimeError(`Unknown binary operator: ${node.operator}`, node.line, node.column);
 		}
@@ -925,6 +881,16 @@ export class Evaluator {
 	 * Evaluate an identifier
 	 */
 	private evaluateIdentifier(node: IdentifierNode) {
+		if (this.environment.has(node.name)) {
+			return this.environment.get(node.name);
+		}
+
+		for (const enumType of this.enumTypes.values()) {
+			if (enumType.values.includes(node.name)) {
+				return node.name;
+			}
+		}
+
 		return this.environment.get(node.name);
 	}
 
@@ -951,6 +917,10 @@ export class Evaluator {
 	private async evaluateCallExpression(node: CallExpressionNode): Promise<unknown> {
 		const routineName = node.name;
 
+		if (routineName === 'EOF') {
+			return this.fileOperations.evaluateEOFCall(node.arguments, node.line, node.column);
+		}
+
 		// Check if it's a built-in routine
 		if (this.globalRoutines.has(routineName)) {
 			const routineInfo = this.globalRoutines.get(routineName)!;
@@ -971,17 +941,25 @@ export class Evaluator {
 		const routineEnvironment = this.environment.createChild();
 
 		// Set up parameters
+		const byRefBindings: Array<{ parameterName: string; callerVariable: string }> = [];
 		for (let i = 0; i < signature.parameters.length; i++) {
 			const param = signature.parameters[i];
 			const arg = args[i];
 
-			if (param.mode === ParameterMode.BY_REFERENCE && typeof arg === 'object') {
-				// Pass by reference
-				routineEnvironment.define(param.name, param.type, arg);
-			} else {
-				// Pass by value
-				routineEnvironment.define(param.name, param.type, arg);
+			if (param.mode === ParameterMode.BY_REFERENCE) {
+				const argNode = node.arguments[i];
+				if (!argNode || argNode.type !== 'Identifier') {
+					throw new RuntimeError(`BYREF parameter '${param.name}' requires a variable identifier argument`, node.line, node.column);
+				}
+
+				byRefBindings.push({
+					parameterName: param.name,
+					callerVariable: (argNode as IdentifierNode).name
+				});
 			}
+
+			// Initialize parameter binding in routine scope
+			routineEnvironment.define(param.name, param.type, arg);
 		}
 
 		// Create a new execution context for the routine
@@ -1042,6 +1020,12 @@ export class Evaluator {
 		this.context = previousContext;
 		this.environment = previousEnvironment;
 
+		// Propagate BYREF updates back to caller scope
+		for (const binding of byRefBindings) {
+			const updatedValue = routineEnvironment.get(binding.parameterName);
+			this.environment.assign(binding.callerVariable, updatedValue);
+		}
+
 		// Pop call frame
 		this.context.popCallFrame();
 
@@ -1066,7 +1050,40 @@ export class Evaluator {
 			throw new RuntimeError('Cannot access property of non-object', node.line, node.column);
 		}
 
+		const parentType = this.resolveMemberPathType(node.object);
+		if (parentType && !(node.field in parentType.fields)) {
+			throw new RuntimeError(`Unknown field '${node.field}' on type '${parentType.name}'`, node.line, node.column);
+		}
+
 		return (object as Record<string, unknown>)[node.field];
+	}
+
+	private resolveMemberPathType(expression: ExpressionNode): UserDefinedTypeInfo | undefined {
+		if (expression.type === 'Identifier') {
+			const typeInfo = this.environment.getType((expression as IdentifierNode).name);
+			if (typeof typeInfo === 'object' && typeInfo !== null && 'fields' in typeInfo) {
+				return typeInfo;
+			}
+			return undefined;
+		}
+
+		if (expression.type === 'MemberAccess') {
+			const member = expression as MemberAccessNode;
+			const parentType = this.resolveMemberPathType(member.object);
+			if (!parentType) {
+				return undefined;
+			}
+			const fieldType = parentType.fields[member.field];
+			if (!fieldType) {
+				return undefined;
+			}
+			if (typeof fieldType === 'object' && fieldType !== null && 'fields' in fieldType) {
+				return fieldType;
+			}
+			return undefined;
+		}
+
+		return undefined;
 	}
 
 	/**
@@ -1195,7 +1212,7 @@ export class Evaluator {
 		if (arrayType.bounds.length === 1) {
 			const bound = arrayType.bounds[0];
 			const size = bound.upper - bound.lower + 1;
-			return new Array(size);
+			return Array.from({ length: size }, () => this.getDefaultValueForType(arrayType.elementType));
 		}
 
 		// Create multi-dimensional array recursively
@@ -1213,6 +1230,108 @@ export class Evaluator {
 		}
 
 		return result;
+	}
+
+	private getDefaultValueForType(type: PseudocodeType): unknown {
+		switch (type) {
+			case PseudocodeType.INTEGER:
+			case PseudocodeType.REAL:
+				return 0;
+			case PseudocodeType.CHAR:
+				return ' ';
+			case PseudocodeType.STRING:
+				return '';
+			case PseudocodeType.BOOLEAN:
+				return false;
+			case PseudocodeType.DATE:
+				return new Date(0);
+		}
+	}
+
+	private getDefaultValueForFieldType(type: TypeInfo): unknown {
+		if (typeof type === 'string') {
+			return this.getDefaultValueForType(type);
+		}
+		if ('kind' in type && type.kind === 'ENUM') {
+			return type.values[0] ?? '';
+		}
+		if ('kind' in type && type.kind === 'SET') {
+			return new Set();
+		}
+		if ('fields' in type) {
+			const result: Record<string, unknown> = {};
+			for (const [fieldName, fieldType] of Object.entries(type.fields)) {
+				result[fieldName] = this.getDefaultValueForFieldType(fieldType);
+			}
+			return result;
+		}
+		return this.createEmptyArray(type);
+	}
+
+	private resolveType(
+		type: TypeInfo,
+		line?: number,
+		column?: number,
+		resolving: Set<string> = new Set()
+	): TypeInfo {
+		if (typeof type === 'string') {
+			return type;
+		}
+
+		if ('kind' in type) {
+			return type;
+		}
+
+		if ('elementType' in type) {
+			return {
+				elementType: type.elementType,
+				bounds: type.bounds
+			};
+		}
+
+		if (Object.keys(type.fields).length > 0) {
+			const resolvedFields: Record<string, TypeInfo> = {};
+			for (const [fieldName, fieldType] of Object.entries(type.fields)) {
+				resolvedFields[fieldName] = this.resolveType(fieldType as TypeInfo, line, column, resolving);
+			}
+			return {
+				name: type.name,
+				fields: resolvedFields
+			};
+		}
+
+		const lookupName = type.name.toUpperCase();
+		if (resolving.has(lookupName)) {
+			throw new RuntimeError(`Recursive type '${type.name}' is not supported`, line, column);
+		}
+
+		resolving.add(lookupName);
+		const resolved = this.userDefinedTypes.get(type.name.toUpperCase());
+		const resolvedEnum = this.enumTypes.get(type.name.toUpperCase());
+		if (resolvedEnum) {
+			resolving.delete(lookupName);
+			return resolvedEnum;
+		}
+		const resolvedSet = this.setTypes.get(type.name.toUpperCase());
+		if (resolvedSet) {
+			resolving.delete(lookupName);
+			return resolvedSet;
+		}
+		if (!resolved) {
+			resolving.delete(lookupName);
+			throw new RuntimeError(`Unknown type '${type.name}'`, line, column);
+		}
+
+		const resolvedFields: Record<string, TypeInfo> = {};
+		for (const [fieldName, fieldType] of Object.entries(resolved.fields)) {
+			resolvedFields[fieldName] = this.resolveType(fieldType as TypeInfo, line, column, resolving);
+		}
+		resolving.delete(lookupName);
+
+		return {
+			name: resolved.name,
+			fields: resolvedFields
+		};
 	}
 
 	/**
@@ -1240,6 +1359,9 @@ export class Evaluator {
 	private getArrayElementFromValue(array: unknown[], indices: number[]): unknown {
 		if (indices.length === 1) {
 			const index = indices[0];
+			if (!Number.isInteger(index)) {
+				throw new IndexError('Array index must be INTEGER');
+			}
 			if (index < 1 || index > array.length) {
 				throw new IndexError(`Array index out of bounds: ${index}`);
 			}
@@ -1259,8 +1381,9 @@ export class Evaluator {
 		// Handle ArrayAtom
 		if (array instanceof VariableAtom && typeof array.type === 'object' && array.type !== null && 'elementType' in array.type) {
 			const arrayAtom = array as ArrayAtom;
-			const arrayValue = arrayAtom.value as unknown[];
-			this.setArrayElementInValue(arrayValue, indices, value);
+			const cloned = JSON.parse(JSON.stringify(arrayAtom.value)) as unknown[];
+			this.setArrayElementInValue(cloned, indices, value);
+			arrayAtom.value = cloned;
 			return;
 		}
 
@@ -1278,6 +1401,9 @@ export class Evaluator {
 	private setArrayElementInValue(array: unknown[], indices: number[], value: unknown): void {
 		if (indices.length === 1) {
 			const index = indices[0];
+			if (!Number.isInteger(index)) {
+				throw new IndexError('Array index must be INTEGER');
+			}
 			if (index < 1 || index > array.length) {
 				throw new IndexError(`Array index out of bounds: ${index}`);
 			}

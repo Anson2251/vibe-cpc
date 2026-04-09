@@ -4,7 +4,7 @@
  * This module defines all abstract syntax tree (AST) node types for the CAIE pseudocode language.
  */
 
-import { PseudocodeType, ArrayTypeInfo, UserDefinedTypeInfo, ParameterMode } from '../types';
+import { PseudocodeType, TypeInfo, ParameterMode } from '../types';
 
 /**
  * Base interface for all AST nodes
@@ -47,7 +47,7 @@ export interface ProgramNode extends ASTNode {
 export interface VariableDeclarationNode extends StatementNode {
 	type: 'VariableDeclaration';
 	name: string;
-	dataType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	dataType: TypeInfo;
 	isConstant: boolean;
 	initialValue?: ExpressionNode;
 }
@@ -58,7 +58,7 @@ export interface VariableDeclarationNode extends StatementNode {
 export interface DeclareStatementNode extends StatementNode {
 	type: 'DeclareStatement';
 	name: string;
-	dataType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	dataType: TypeInfo;
 	isConstant: boolean;
 	initialValue?: ExpressionNode;
 }
@@ -139,7 +139,7 @@ export interface FunctionDeclarationNode extends StatementNode {
 	type: 'FunctionDeclaration';
 	name: string;
 	parameters: ParameterNode[];
-	returnType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	returnType: TypeInfo;
 	body: StatementNode[];
 }
 
@@ -182,9 +182,8 @@ export interface ReturnNode extends StatementNode {
  */
 export interface OpenFileNode extends StatementNode {
 	type: 'OpenFile';
-	filename: ExpressionNode;
+	fileIdentifier: ExpressionNode;
 	mode: 'READ' | 'WRITE' | 'APPEND' | 'RANDOM';
-	fileHandle: ExpressionNode;  // Identifier
 }
 
 /**
@@ -192,7 +191,7 @@ export interface OpenFileNode extends StatementNode {
  */
 export interface CloseFileNode extends StatementNode {
 	type: 'CloseFile';
-	fileHandle: ExpressionNode;  // Identifier
+	fileIdentifier: ExpressionNode;
 }
 
 /**
@@ -200,7 +199,7 @@ export interface CloseFileNode extends StatementNode {
  */
 export interface ReadFileNode extends StatementNode {
 	type: 'ReadFile';
-	fileHandle: ExpressionNode;  // Identifier
+	fileIdentifier: ExpressionNode;
 	target: ExpressionNode;  // Identifier or array access
 }
 
@@ -209,7 +208,7 @@ export interface ReadFileNode extends StatementNode {
  */
 export interface WriteFileNode extends StatementNode {
 	type: 'WriteFile';
-	fileHandle: ExpressionNode;  // Identifier
+	fileIdentifier: ExpressionNode;
 	expressions: ExpressionNode[];
 }
 
@@ -218,7 +217,7 @@ export interface WriteFileNode extends StatementNode {
  */
 export interface SeekNode extends StatementNode {
 	type: 'Seek';
-	fileHandle: ExpressionNode;  // Identifier
+	fileIdentifier: ExpressionNode;
 	position: ExpressionNode;
 }
 
@@ -227,8 +226,7 @@ export interface SeekNode extends StatementNode {
  */
 export interface GetRecordNode extends StatementNode {
 	type: 'GetRecord';
-	fileHandle: ExpressionNode;  // Identifier
-	position: ExpressionNode;
+	fileIdentifier: ExpressionNode;
 	target: ExpressionNode;  // Identifier or array access
 }
 
@@ -237,8 +235,7 @@ export interface GetRecordNode extends StatementNode {
  */
 export interface PutRecordNode extends StatementNode {
 	type: 'PutRecord';
-	fileHandle: ExpressionNode;  // Identifier
-	position: ExpressionNode;
+	fileIdentifier: ExpressionNode;
 	source: ExpressionNode;  // Identifier or array access
 }
 
@@ -249,6 +246,15 @@ export interface TypeDeclarationNode extends StatementNode {
 	type: 'TypeDeclaration';
 	name: string;
 	fields: FieldDeclarationNode[];
+	enumValues?: string[];
+	setElementType?: PseudocodeType;
+}
+
+export interface SetDeclarationNode extends StatementNode {
+	type: 'SetDeclaration';
+	name: string;
+	setTypeName: string;
+	values: ExpressionNode[];
 }
 
 /**
@@ -257,7 +263,7 @@ export interface TypeDeclarationNode extends StatementNode {
 export interface FieldDeclarationNode extends StatementNode {
 	type: 'FieldDeclaration';
 	name: string;
-	dataType: PseudocodeType | ArrayTypeInfo;
+	dataType: TypeInfo;
 }
 
 /**
@@ -279,7 +285,7 @@ export interface MethodDeclarationNode extends StatementNode {
 	name: string;
 	visibility: 'PUBLIC' | 'PRIVATE';
 	parameters: ParameterNode[];
-	returnType?: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	returnType?: TypeInfo;
 	body: StatementNode[];
 }
 
@@ -374,7 +380,7 @@ export interface TypeCastNode extends ExpressionNode {
 export interface ParameterNode extends ASTNode {
 	type: 'Parameter';
 	name: string;
-	dataType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	dataType: TypeInfo;
 	mode: ParameterMode;
 }
 
@@ -423,6 +429,7 @@ export interface ASTVisitor<T> {
 	visitGetRecord(node: GetRecordNode): T;
 	visitPutRecord(node: PutRecordNode): T;
 	visitTypeDeclaration(node: TypeDeclarationNode): T;
+	visitSetDeclaration(node: SetDeclarationNode): T;
 	visitFieldDeclaration(node: FieldDeclarationNode): T;
 	visitClassDeclaration(node: ClassDeclarationNode): T;
 	visitMethodDeclaration(node: MethodDeclarationNode): T;
@@ -469,6 +476,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
 			case 'GetRecord': return this.visitGetRecord(node as GetRecordNode);
 			case 'PutRecord': return this.visitPutRecord(node as PutRecordNode);
 			case 'TypeDeclaration': return this.visitTypeDeclaration(node as TypeDeclarationNode);
+			case 'SetDeclaration': return this.visitSetDeclaration(node as SetDeclarationNode);
 			case 'FieldDeclaration': return this.visitFieldDeclaration(node as FieldDeclarationNode);
 			case 'ClassDeclaration': return this.visitClassDeclaration(node as ClassDeclarationNode);
 			case 'MethodDeclaration': return this.visitMethodDeclaration(node as MethodDeclarationNode);
@@ -513,6 +521,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
 	abstract visitGetRecord(node: GetRecordNode): T;
 	abstract visitPutRecord(node: PutRecordNode): T;
 	abstract visitTypeDeclaration(node: TypeDeclarationNode): T;
+	abstract visitSetDeclaration(node: SetDeclarationNode): T;
 	abstract visitFieldDeclaration(node: FieldDeclarationNode): T;
 	abstract visitClassDeclaration(node: ClassDeclarationNode): T;
 	abstract visitMethodDeclaration(node: MethodDeclarationNode): T;

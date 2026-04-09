@@ -6,6 +6,12 @@ import {
 	VariableDeclarationNode,
 	AssignmentNode,
 	IfNode,
+	OpenFileNode,
+	ReadFileNode,
+	WriteFileNode,
+	SeekNode,
+	GetRecordNode,
+	PutRecordNode,
 	ForNode,
 	WhileNode,
 	RepeatNode,
@@ -341,6 +347,85 @@ describe('Parser', () => {
 
 			const arg2 = statement.arguments[1] as LiteralNode;
 			expect(arg2.value).toBe(10);
+		});
+	});
+
+	describe('File operations parsing', () => {
+		test('should parse OPENFILE in CAIE format', () => {
+			const code = 'OPENFILE "sample.txt" FOR READ';
+			const ast = parseCode(code);
+
+			expect(ast.body).toHaveLength(1);
+			const stmt = ast.body[0] as OpenFileNode;
+			expect(stmt.type).toBe('OpenFile');
+			expect(stmt.mode).toBe('READ');
+			expect(stmt.fileIdentifier.type).toBe('Literal');
+		});
+
+		test('should parse READFILE with comma separator', () => {
+			const code = 'READFILE "sample.txt", line';
+			const ast = parseCode(code);
+
+			expect(ast.body).toHaveLength(1);
+			const stmt = ast.body[0] as ReadFileNode;
+			expect(stmt.type).toBe('ReadFile');
+			expect(stmt.fileIdentifier.type).toBe('Literal');
+			expect(stmt.target.type).toBe('Identifier');
+		});
+
+		test('should parse WRITEFILE with comma separator', () => {
+			const code = 'WRITEFILE "sample.txt", "hello"';
+			const ast = parseCode(code);
+
+			expect(ast.body).toHaveLength(1);
+			const stmt = ast.body[0] as WriteFileNode;
+			expect(stmt.type).toBe('WriteFile');
+			expect(stmt.fileIdentifier.type).toBe('Literal');
+			expect(stmt.expressions).toHaveLength(1);
+		});
+
+		test('should parse SEEK with comma separator', () => {
+			const code = 'SEEK "random.dat", 10';
+			const ast = parseCode(code);
+
+			expect(ast.body).toHaveLength(1);
+			const stmt = ast.body[0] as SeekNode;
+			expect(stmt.type).toBe('Seek');
+			expect(stmt.fileIdentifier.type).toBe('Literal');
+			const position = stmt.position as LiteralNode;
+			expect(position.value).toBe(10);
+		});
+
+		test('should parse GETRECORD and PUTRECORD in CAIE format', () => {
+			const code = `
+        GETRECORD "random.dat", record
+        PUTRECORD "random.dat", record
+      `;
+			const ast = parseCode(code);
+
+			expect(ast.body).toHaveLength(2);
+
+			const getStmt = ast.body[0] as GetRecordNode;
+			expect(getStmt.type).toBe('GetRecord');
+			expect(getStmt.fileIdentifier.type).toBe('Literal');
+			expect(getStmt.target.type).toBe('Identifier');
+
+			const putStmt = ast.body[1] as PutRecordNode;
+			expect(putStmt.type).toBe('PutRecord');
+			expect(putStmt.fileIdentifier.type).toBe('Literal');
+			expect(putStmt.source.type).toBe('Identifier');
+		});
+
+		test('should parse EOF as function expression', () => {
+			const code = 'x <- EOF("sample.txt")';
+			const ast = parseCode(code);
+
+			expect(ast.body).toHaveLength(1);
+			const stmt = ast.body[0] as AssignmentNode;
+			const value = stmt.value as any;
+			expect(value.type).toBe('CallExpression');
+			expect(value.name).toBe('EOF');
+			expect(value.arguments).toHaveLength(1);
 		});
 	});
 

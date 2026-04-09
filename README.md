@@ -89,6 +89,23 @@ interface IOInterface {
 - **Composite Types**: Arrays (1D and 2D), Records, Sets
 - **User-defined Types**: Enumerated types, Pointers
 
+## Syntax Support Matrix
+
+| Area | Syntax / Feature | Status | Notes |
+| --- | --- | --- | --- |
+| Variables and types | `DECLARE`, primitive types | ✅ Supported | INTEGER, REAL, CHAR, STRING, BOOLEAN, DATE |
+| Arrays | `ARRAY[lower:upper] OF <type>` | ✅ Supported | Multi-dimensional arrays supported |
+| User-defined records | `TYPE Name ... ENDTYPE` | ✅ Supported | Nested record fields supported |
+| Enumerations | `TYPE Season = (Spring, Summer, ...)` | ✅ Supported | Enum literals assignable by member name |
+| Sets | `TYPE LetterSet = SET OF CHAR` + `DEFINE ... : LetterSet` | ✅ Supported | `IN` membership supported |
+| Selection | `IF`, `CASE` | ✅ Supported | Includes `OTHERWISE` in CASE |
+| Loops | `FOR`, `WHILE`, `REPEAT` | ✅ Supported | `STEP` supported |
+| Routines | `PROCEDURE`, `FUNCTION`, `CALL` | ✅ Supported | `BYREF` caller write-back implemented |
+| File operations | `OPENFILE`, `READFILE`, `WRITEFILE`, `EOF`, random-file ops | ✅ Supported | CAIE-style file identifier syntax |
+| OOP | `CLASS`, `INHERITS`, `NEW`, methods/properties | ⚠️ Partial | Parser support is broader than runtime behavior |
+| Pointers | Pointer type semantics | ❌ Not supported | Decl syntax in guide not yet implemented |
+| Constants | `CONSTANT` statement | ⚠️ Partial | Lexer token exists; full statement semantics pending |
+
 ### Control Structures
 - **Selection**: IF statements, CASE statements
 - **Iteration**: FOR loops, WHILE loops, REPEAT loops

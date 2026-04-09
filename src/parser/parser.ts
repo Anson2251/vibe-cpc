@@ -31,6 +31,7 @@ import {
 	GetRecordNode,
 	PutRecordNode,
 	TypeDeclarationNode,
+	SetDeclarationNode,
 	FieldDeclarationNode,
 	ClassDeclarationNode,
 	MethodDeclarationNode,
@@ -40,6 +41,7 @@ import {
 	LiteralNode,
 	ArrayAccessNode,
 	CallExpressionNode,
+	MemberAccessNode,
 	NewExpressionNode,
 	ParameterNode,
 } from './ast-nodes';
@@ -51,6 +53,15 @@ import {
 	ParameterMode
 } from '../types';
 import { SyntaxError } from '../errors';
+import {
+	parseOpenFileStatement,
+	parseCloseFileStatement,
+	parseReadFileStatement,
+	parseWriteFileStatement,
+	parseSeekStatement,
+	parseGetRecordStatement,
+	parsePutRecordStatement
+} from './file-operations-parser';
 
 /**
  * Parser class for generating AST from tokens
@@ -175,6 +186,10 @@ export class Parser {
 				return this.typeDeclaration();
 			}
 
+			if (this.match(TokenType.DEFINE)) {
+				return this.setDeclaration();
+			}
+
 			if (this.match(TokenType.CLASS)) {
 				return this.classDeclaration();
 			}
@@ -201,53 +216,7 @@ export class Parser {
 
 		this.consume(TokenType.COLON, "Expected ':' after variable name, before data type");
 
-		// Get data type
-		let dataType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
-
-		if (this.match(TokenType.ARRAY)) {
-			// Parse array bounds in CAIE format: [lower:upper]
-			const bounds: ArrayBound[] = [];
-			this.consume(TokenType.LEFT_BRACKET, "Expected '[' for array bounds");
-
-			while (!this.check(TokenType.RIGHT_BRACKET)) {
-				// Parse lower bound
-				const lowerExpr = this.expression();
-				if (lowerExpr.type !== 'Literal' || typeof (lowerExpr as LiteralNode).value !== 'number') {
-					throw this.error(this.peek(), "Array bounds must be integer literals");
-				}
-				const lower = (lowerExpr as LiteralNode).value as number;
-
-				// Expect colon separator
-				this.consume(TokenType.COLON, "Expected ':' between array bounds");
-
-				// Parse upper bound
-				const upperExpr = this.expression();
-				if (upperExpr.type !== 'Literal' || typeof (upperExpr as LiteralNode).value !== 'number') {
-					throw this.error(this.peek(), "Array bounds must be integer literals");
-				}
-				const upper = (upperExpr as LiteralNode).value as number;
-
-				bounds.push({ lower, upper });
-
-				// Check for comma for multi-dimensional arrays
-				if (this.match(TokenType.COMMA)) {
-					continue;
-				}
-			}
-
-			this.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array bounds");
-
-			// Array type
-			this.consume(TokenType.OF, "Expected 'OF' after ARRAY");
-			const elementType = this.parseDataType();
-
-			dataType = {
-				elementType,
-				bounds
-			} as ArrayTypeInfo;
-		} else {
-			dataType = this.parseDataType();
-		}
+		const dataType = this.parseDataType();
 
 		if (this.match(TokenType.ASSIGNMENT)) {
 			throw new Error("Assignment not allowed in DECLARE statement");
@@ -546,7 +515,7 @@ export class Parser {
 		this.consume(TokenType.LEFT_PAREN, "Expected '(' after function name");
 		const parameters = this.parseParameters();
 		this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
-		this.consumeNewline();
+		this.consumeOptionalNewline();
 		this.consume(TokenType.RETURNS, "Expected 'RETURNS' in function declaration");
 		const returnType = this.parseDataType();
 		this.consumeNewline();
@@ -621,16 +590,16 @@ export class Parser {
 		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected procedure name");
 		const name = nameToken.value as string;
 
-		this.consume(TokenType.LEFT_PAREN, "Expected '(' after procedure name");
 		const args: ExpressionNode[] = [];
+		if (this.match(TokenType.LEFT_PAREN)) {
+			if (!this.check(TokenType.RIGHT_PAREN)) {
+				do {
+					args.push(this.expression());
+				} while (this.match(TokenType.COMMA));
+			}
 
-		if (!this.check(TokenType.RIGHT_PAREN)) {
-			do {
-				args.push(this.expression());
-			} while (this.match(TokenType.COMMA));
+			this.consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments");
 		}
-
-		this.consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments");
 		this.consumeNewline();
 
 		return {
@@ -720,169 +689,62 @@ export class Parser {
 	 * Parse an OPENFILE statement
 	 */
 	private openFileStatement(): OpenFileNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
-
-		const filename = this.expression();
-
-		let mode: 'READ' | 'WRITE' | 'APPEND' | 'RANDOM' = 'READ';
-		if (this.match(TokenType.IDENTIFIER)) {
-			const modeToken = this.previous();
-			const modeValue = (modeToken.value as string).toUpperCase();
-			if (modeValue === 'READ' || modeValue === 'WRITE' || modeValue === 'APPEND' || modeValue === 'RANDOM') {
-				mode = modeValue;
-			} else {
-				throw this.error(modeToken, "Invalid file mode. Expected READ, WRITE, APPEND, or RANDOM");
-			}
-		}
-
-		this.consume(TokenType.FOR, "Expected 'FOR' after filename");
-		const fileHandle = this.primary();
-		this.consumeNewline();
-
-		return {
-			type: 'OpenFile',
-			filename,
-			mode,
-			fileHandle,
-			line,
-			column
-		};
+		return parseOpenFileStatement(this.fileParserContext());
 	}
 
 	/**
 	 * Parse a CLOSEFILE statement
 	 */
 	private closeFileStatement(): CloseFileNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
-
-		const fileHandle = this.primary();
-		this.consumeNewline();
-
-		return {
-			type: 'CloseFile',
-			fileHandle,
-			line,
-			column
-		};
+		return parseCloseFileStatement(this.fileParserContext());
 	}
 
 	/**
 	 * Parse a READFILE statement
 	 */
 	private readFileStatement(): ReadFileNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
-
-		const fileHandle = this.primary();
-		this.consume(TokenType.FROM, "Expected 'FROM' after file handle");
-		const target = this.primary();
-		this.consumeNewline();
-
-		return {
-			type: 'ReadFile',
-			fileHandle,
-			target,
-			line,
-			column
-		};
+		return parseReadFileStatement(this.fileParserContext());
 	}
 
 	/**
 	 * Parse a WRITEFILE statement
 	 */
 	private writeFileStatement(): WriteFileNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
-
-		const fileHandle = this.primary();
-		this.consume(TokenType.COMMA, "Expected ',' after file handle");
-
-		const expressions: ExpressionNode[] = [];
-		if (!this.check(TokenType.NEWLINE)) {
-			do {
-				expressions.push(this.expression());
-			} while (this.match(TokenType.COMMA));
-		}
-
-		this.consumeNewline();
-
-		return {
-			type: 'WriteFile',
-			fileHandle,
-			expressions,
-			line,
-			column
-		};
+		return parseWriteFileStatement(this.fileParserContext());
 	}
 
 	/**
 	 * Parse a SEEK statement
 	 */
 	private seekStatement(): SeekNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
-
-		const fileHandle = this.primary();
-		this.consume(TokenType.TO, "Expected 'TO' after file handle");
-		const position = this.expression();
-		this.consumeNewline();
-
-		return {
-			type: 'Seek',
-			fileHandle,
-			position,
-			line,
-			column
-		};
+		return parseSeekStatement(this.fileParserContext());
 	}
 
 	/**
 	 * Parse a GETRECORD statement
 	 */
 	private getRecordStatement(): GetRecordNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
-
-		const fileHandle = this.primary();
-		this.consume(TokenType.FROM, "Expected 'FROM' after file handle");
-		const position = this.expression();
-		this.consume(TokenType.TO, "Expected 'TO' after position");
-		const target = this.primary();
-		this.consumeNewline();
-
-		return {
-			type: 'GetRecord',
-			fileHandle,
-			position,
-			target,
-			line,
-			column
-		};
+		return parseGetRecordStatement(this.fileParserContext());
 	}
 
 	/**
 	 * Parse a PUTRECORD statement
 	 */
 	private putRecordStatement(): PutRecordNode {
-		const line = this.previous().line;
-		const column = this.previous().column;
+		return parsePutRecordStatement(this.fileParserContext());
+	}
 
-		const fileHandle = this.primary();
-		this.consume(TokenType.TO, "Expected 'TO' after file handle");
-		const position = this.expression();
-		this.consume(TokenType.FROM, "Expected 'FROM' after position");
-		const source = this.primary();
-		this.consumeNewline();
-
+	private fileParserContext() {
 		return {
-			type: 'PutRecord',
-			fileHandle,
-			position,
-			source,
-			line,
-			column
+			previousLine: () => this.previous().line,
+			previousColumn: () => this.previous().column,
+			expression: () => this.expression(),
+			primary: () => this.primary(),
+			check: (type: TokenType) => this.check(type),
+			match: (type: TokenType) => this.match(type),
+			consume: (type: TokenType, message: string) => this.consume(type, message),
+			consumeNewline: () => this.consumeNewline(),
+			error: (token: { value: unknown }, message: string) => this.error(token as Token, message)
 		};
 	}
 
@@ -895,12 +757,54 @@ export class Parser {
 
 		const nameToken = this.consume(TokenType.IDENTIFIER, "Expected type name");
 		const name = nameToken.value;
+		if (this.match(TokenType.EQUAL)) {
+			if (this.match(TokenType.SET)) {
+				this.consume(TokenType.OF, "Expected 'OF' after SET");
+				const elementType = this.parseDataType();
+				if (typeof elementType !== 'string') {
+					throw this.error(this.peek(), 'SET element type must be a primitive type');
+				}
+				this.consumeNewline();
+
+				return {
+					type: 'TypeDeclaration',
+					name: name as string,
+					fields: [],
+					setElementType: elementType,
+					line,
+					column
+				};
+			}
+
+			this.consume(TokenType.LEFT_PAREN, "Expected '(' after '=' in enum declaration");
+			const enumValues: string[] = [];
+			do {
+				const valueToken = this.consume(TokenType.IDENTIFIER, 'Expected enum member identifier');
+				enumValues.push(valueToken.value as string);
+			} while (this.match(TokenType.COMMA));
+			this.consume(TokenType.RIGHT_PAREN, "Expected ')' after enum declaration values");
+			this.consumeNewline();
+
+			return {
+				type: 'TypeDeclaration',
+				name: name as string,
+				fields: [],
+				enumValues,
+				line,
+				column
+			};
+		}
+
 		this.consumeNewline();
 
 		const fields: FieldDeclarationNode[] = [];
 		while (!this.check(TokenType.ENDTYPE) && !this.isAtEnd()) {
 			const fieldLine = this.peek().line;
 			const fieldColumn = this.peek().column;
+
+			if (this.match(TokenType.DECLARE)) {
+				// optional DECLARE keyword in type fields
+			}
 
 			const fieldNameToken = this.consume(TokenType.IDENTIFIER, "Expected field name");
 			const fieldName = fieldNameToken.value;
@@ -912,7 +816,7 @@ export class Parser {
 			fields.push({
 				type: 'FieldDeclaration',
 				name: fieldName as string,
-				dataType: dataType as PseudocodeType | ArrayTypeInfo,
+				dataType,
 				line: fieldLine,
 				column: fieldColumn
 			});
@@ -925,6 +829,35 @@ export class Parser {
 			type: 'TypeDeclaration',
 			name: name as string,
 			fields,
+			line,
+			column
+		};
+	}
+
+	private setDeclaration(): SetDeclarationNode {
+		const line = this.previous().line;
+		const column = this.previous().column;
+
+		const nameToken = this.consume(TokenType.IDENTIFIER, 'Expected set variable name after DEFINE');
+		const name = nameToken.value as string;
+
+		this.consume(TokenType.LEFT_PAREN, "Expected '(' after set name");
+		const values: ExpressionNode[] = [];
+		if (!this.check(TokenType.RIGHT_PAREN)) {
+			do {
+				values.push(this.expression());
+			} while (this.match(TokenType.COMMA));
+		}
+		this.consume(TokenType.RIGHT_PAREN, "Expected ')' after set values");
+		this.consume(TokenType.COLON, "Expected ':' before set type name");
+		const typeToken = this.consume(TokenType.IDENTIFIER, 'Expected set type name');
+		this.consumeNewline();
+
+		return {
+			type: 'SetDeclaration',
+			name,
+			setTypeName: typeToken.value as string,
+			values,
 			line,
 			column
 		};
@@ -1181,7 +1114,8 @@ export class Parser {
 			this.match(TokenType.GREATER_THAN) ||
 			this.match(TokenType.GREATER_EQUAL) ||
 			this.match(TokenType.LESS_THAN) ||
-			this.match(TokenType.LESS_EQUAL)
+			this.match(TokenType.LESS_EQUAL) ||
+			this.match(TokenType.IN)
 		) {
 			const operator = this.previous().value;
 			const right = this.term();
@@ -1384,13 +1318,25 @@ export class Parser {
 				} as ArrayAccessNode;
 			}
 
-			// Otherwise, it's a simple identifier
-			return {
+			let expr: ExpressionNode = {
 				type: 'Identifier',
 				name,
 				line: this.previous().line,
 				column: this.previous().column
 			} as IdentifierNode;
+
+			while (this.match(TokenType.DOT)) {
+				const fieldToken = this.consume(TokenType.IDENTIFIER, "Expected field name after '.'");
+				expr = {
+					type: 'MemberAccess',
+					object: expr,
+					field: fieldToken.value as string,
+					line: fieldToken.line,
+					column: fieldToken.column
+				} as MemberAccessNode;
+			}
+
+			return expr;
 		}
 
 		if (this.match(TokenType.LEFT_PAREN)) {
@@ -1423,6 +1369,25 @@ export class Parser {
 			} as NewExpressionNode;
 		}
 
+		if (this.match(TokenType.EOF)) {
+			this.consume(TokenType.LEFT_PAREN, "Expected '(' after EOF");
+			const args: ExpressionNode[] = [];
+			if (!this.check(TokenType.RIGHT_PAREN)) {
+				do {
+					args.push(this.expression());
+				} while (this.match(TokenType.COMMA));
+			}
+			this.consume(TokenType.RIGHT_PAREN, "Expected ')' after EOF arguments");
+
+			return {
+				type: 'CallExpression',
+				name: 'EOF',
+				arguments: args,
+				line: this.previous().line,
+				column: this.previous().column
+			} as CallExpressionNode;
+		}
+
 		throw this.error(this.peek(), "Expected expression, found " + String(this.peek().value));
 	}
 
@@ -1430,10 +1395,23 @@ export class Parser {
 	 * Parse a data type
 	 */
 	private parseDataType(): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo {
-		const token = this.consumeLike([TokenType.STRING, TokenType.CHAR, TokenType.INTEGER, TokenType.REAL, TokenType.BOOLEAN, TokenType.DATE], `Expected data type, found "${String(this.peek().value)}"`);
+		if (this.match(TokenType.ARRAY)) {
+			return this.parseArrayType();
+		}
+
+		if (this.match(TokenType.IDENTIFIER)) {
+			return {
+				name: this.previous().value as string,
+				fields: {}
+			} as UserDefinedTypeInfo;
+		}
+
+		const token = this.consumeLike(
+			[TokenType.STRING, TokenType.CHAR, TokenType.INTEGER, TokenType.REAL, TokenType.BOOLEAN, TokenType.DATE],
+			`Expected data type, found "${String(this.peek().value)}"`
+		);
 		const typeName = (token.value as string).toUpperCase();
 
-		// Check for built-in types
 		switch (typeName) {
 			case 'INTEGER':
 				return PseudocodeType.INTEGER;
@@ -1448,11 +1426,48 @@ export class Parser {
 			case 'DATE':
 				return PseudocodeType.DATE;
 			default:
-				// User-defined type
-				return {
-					name: typeName,
-					fields: {} // This will be filled in during semantic analysis
-				} as UserDefinedTypeInfo;
+				throw this.error(this.peek(), `Expected data type, found "${String(token.value)}"`);
+		}
+	}
+
+	private parseArrayType(): ArrayTypeInfo {
+		const bounds: ArrayBound[] = [];
+		this.consume(TokenType.LEFT_BRACKET, "Expected '[' for array bounds");
+
+		while (!this.check(TokenType.RIGHT_BRACKET)) {
+			const lowerExpr = this.expression();
+			if (lowerExpr.type !== 'Literal' || typeof (lowerExpr as LiteralNode).value !== 'number') {
+				throw this.error(this.peek(), 'Array bounds must be integer literals');
+			}
+			const lower = (lowerExpr as LiteralNode).value as number;
+
+			this.consume(TokenType.COLON, "Expected ':' between array bounds");
+
+			const upperExpr = this.expression();
+			if (upperExpr.type !== 'Literal' || typeof (upperExpr as LiteralNode).value !== 'number') {
+				throw this.error(this.peek(), 'Array bounds must be integer literals');
+			}
+			const upper = (upperExpr as LiteralNode).value as number;
+			bounds.push({ lower, upper });
+
+			if (!this.match(TokenType.COMMA)) {
+				break;
+			}
+		}
+
+		this.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array bounds");
+		this.consume(TokenType.OF, "Expected 'OF' after ARRAY");
+		const elementType = this.parseDataType();
+		if (typeof elementType !== 'string') {
+			throw this.error(this.peek(), 'Array element type must be a primitive type');
+		}
+
+		return { elementType, bounds };
+	}
+
+	private consumeOptionalNewline(): void {
+		while (this.match(TokenType.NEWLINE)) {
+			continue;
 		}
 	}
 

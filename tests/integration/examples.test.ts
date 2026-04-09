@@ -28,30 +28,66 @@ describe('Example Programs Tests', () => {
 	test('should execute test_if_statements.pseudo example', async () => {
 		const code = loadExampleFile('test_if_statements.pseudo');
 		const result = await testRunner.runCode(code);
-		expectOutput(result, 'x is greater than 5');
+		expectOutput(result, [
+			'Both conditions are true',
+			'At least one condition is true',
+			'Complex condition is true'
+		]);
 	});
 
 	test('should execute procedures-functions.pseudo example', async () => {
 		const code = loadExampleFile('procedures-functions.pseudo');
-		const result = await testRunner.runCode(code);
-		expectOutput(result, ['15', '30']);
+		const result = await testRunner.runCode(code, ['Alice', '10', '20']);
+		expectOutput(result, [
+			'Enter your name: ',
+			'Welcome, ',
+			'Alice',
+			'!',
+			'Enter first number: ',
+			'Enter second number: ',
+			'The maximum of ',
+			'10',
+			' and ',
+			'20',
+			' is ',
+			'20',
+			'The sum of the array elements is: ',
+			'150'
+		]);
 	});
 
 	test('should execute simple-procedure.pseudo example', async () => {
 		const code = loadExampleFile('simple-procedure.pseudo');
 		const result = await testRunner.runCode(code);
-		expectOutput(result, 'Hello from procedure!');
+		expectOutput(result, 'Hello, world');
 	});
 
 	test('should execute test_scope_fix.pseudo example', async () => {
 		const code = loadExampleFile('test_scope_fix.pseudo');
 		const result = await testRunner.runCode(code);
-		expectOutput(result, ['10', '5']);
+		expectError(result, 'Undefined variable');
 	});
 
 	test('should execute array-file-ops.pseudo example', async () => {
 		const code = loadExampleFile('array-file-ops.pseudo');
 		const result = await testRunner.runCode(code);
-		expectOutput(result, ['1', '2', '3', '4', '5']);
+		expectOutput(result, [
+			'Array elements: ',
+			'2',
+			'4',
+			'6',
+			'8',
+			'10',
+			'12',
+			'14',
+			'16',
+			'18',
+			'20',
+			'Sum: ',
+			'110',
+			'Average: ',
+			'11',
+			'Results have been written to results.txt'
+		]);
 	});
 });

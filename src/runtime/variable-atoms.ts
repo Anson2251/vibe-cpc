@@ -8,7 +8,10 @@
 import {
 	PseudocodeType,
 	ArrayTypeInfo,
-	UserDefinedTypeInfo
+	UserDefinedTypeInfo,
+	EnumTypeInfo,
+	SetTypeInfo,
+	TypeInfo
 } from '../types';
 import { RuntimeError } from '../errors';
 
@@ -61,7 +64,7 @@ export abstract class VariableAtom {
 	/**
 	 * Get the pseudocode type of the atom
 	 */
-	abstract get type(): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+	abstract get type(): TypeInfo;
 
 	/**
 	 * Validate that a value is compatible with this atom's type
@@ -754,7 +757,7 @@ export class UserDefinedAtom extends VariableAtom {
 		return this._userDefinedType.name;
 	}
 
-	get fields(): Record<string, PseudocodeType | ArrayTypeInfo> {
+	get fields(): Record<string, TypeInfo> {
 		return this._userDefinedType.fields;
 	}
 
@@ -823,7 +826,7 @@ export class UserDefinedAtom extends VariableAtom {
 	/**
 	 * Validate a field value
 	 */
-	private validateFieldValue(value: unknown, fieldType: PseudocodeType | ArrayTypeInfo): void {
+	private validateFieldValue(value: unknown, fieldType: TypeInfo): void {
 		if (typeof fieldType === 'string') {
 			// Simple type
 			this.validateSimpleType(value, fieldType);
@@ -834,6 +837,10 @@ export class UserDefinedAtom extends VariableAtom {
 			}
 			// For simplicity, we'll just validate the first dimension
 			// In a real implementation, we would recursively validate all dimensions
+		} else if ('fields' in fieldType) {
+			if (typeof value !== 'object' || value === null) {
+				throw new RuntimeError(`Expected user-defined type '${fieldType.name}', got ${typeof value}`);
+			}
 		}
 	}
 
@@ -876,6 +883,91 @@ export class UserDefinedAtom extends VariableAtom {
 	}
 }
 
+export class EnumAtom extends VariableAtom {
+	private _enumType: EnumTypeInfo;
+
+	constructor(value: unknown, enumType: EnumTypeInfo, isConstant: boolean = false) {
+		super(value, isConstant);
+		this._enumType = enumType;
+		this.validateValue(value);
+		this._value = value;
+	}
+
+	get type(): EnumTypeInfo {
+		return this._enumType;
+	}
+
+	validateValue(value: unknown): void {
+		if (typeof value !== 'string' || !this._enumType.values.includes(value)) {
+			throw new RuntimeError(`Expected enum '${this._enumType.name}' value`);
+		}
+	}
+
+	convertValue(value: unknown): unknown {
+		this.validateValue(value);
+		return value;
+	}
+
+	copy(): VariableAtom {
+		return new EnumAtom(this._value, this._enumType, this._isConstant);
+	}
+
+	compareTo(other: VariableAtom): ComparisonResult {
+		if (other instanceof EnumAtom && other.type.name === this.type.name) {
+			const a = this._enumType.values.indexOf(this._value as string);
+			const b = other.type.values.indexOf(other.value as string);
+			if (a < b) return ComparisonResult.LESS_THAN;
+			if (a > b) return ComparisonResult.GREATER_THAN;
+			return ComparisonResult.EQUAL;
+		}
+		throw new RuntimeError(`Cannot compare enum '${this._enumType.name}' with unsupported type`);
+	}
+}
+
+export class SetAtom extends VariableAtom {
+	private _setType: SetTypeInfo;
+
+	constructor(value: unknown, setType: SetTypeInfo, isConstant: boolean = false) {
+		super(value, isConstant);
+		this._setType = setType;
+		this.validateValue(value);
+		this._value = value;
+	}
+
+	get type(): SetTypeInfo {
+		return this._setType;
+	}
+
+	validateValue(value: unknown): void {
+		if (!(value instanceof Set)) {
+			throw new RuntimeError(`Expected SET '${this._setType.name}'`);
+		}
+		for (const item of value.values()) {
+			VariableAtomFactory.createAtom(this._setType.elementType, item);
+		}
+	}
+
+	convertValue(value: unknown): unknown {
+		this.validateValue(value);
+		return value;
+	}
+
+	copy(): VariableAtom {
+		return new SetAtom(new Set(this._value as Set<unknown>), this._setType, this._isConstant);
+	}
+
+	compareTo(other: VariableAtom): ComparisonResult {
+		if (!(other instanceof SetAtom)) {
+			throw new RuntimeError(`Cannot compare SET with unsupported type`);
+		}
+		const a = (this._value as Set<unknown>).size;
+		const b = (other.value as Set<unknown>).size;
+		if (a < b) return ComparisonResult.LESS_THAN;
+		if (a > b) return ComparisonResult.GREATER_THAN;
+		return ComparisonResult.EQUAL;
+	}
+}
+
 /**
  * Factory class for creating VariableAtom instances
  */
@@ -884,7 +976,7 @@ export class VariableAtomFactory {
 	 * Create a VariableAtom instance based on the type
 	 */
 	static createAtom(
-		type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo,
+		type: TypeInfo,
 		value: unknown,
 		isConstant: boolean = false
 	): VariableAtom {
@@ -906,6 +998,10 @@ export class VariableAtomFactory {
 				default:
 					throw new RuntimeError(`Unsupported type: ${type as string}`);
 			}
+		} else if ('kind' in type && type.kind === 'ENUM') {
+			return new EnumAtom(value, type, isConstant);
+		} else if ('kind' in type && type.kind === 'SET') {
+			return new SetAtom(value, type, isConstant);
 		} else if ('elementType' in type) {
 			// Array type
 			return new ArrayAtom(value, type, isConstant);
@@ -917,4 +1013,3 @@ export class VariableAtomFactory {
 		}
 	}
 }
-

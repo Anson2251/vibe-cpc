@@ -145,6 +145,20 @@ export interface ArrayTypeInfo {
   bounds: ArrayBound[];  // Array of lower:upper bounds for each dimension
 }
 
+export interface EnumTypeInfo {
+  kind: 'ENUM';
+  name: string;
+  values: string[];
+}
+
+export interface SetTypeInfo {
+  kind: 'SET';
+  name: string;
+  elementType: PseudocodeType;
+}
+
+export type TypeInfo = PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo | EnumTypeInfo | SetTypeInfo;
+
 /**
  * Array bound information for a single dimension
  */
@@ -158,7 +172,7 @@ export interface ArrayBound {
  */
 export interface UserDefinedTypeInfo {
   name: string;
-  fields: Record<string, PseudocodeType | ArrayTypeInfo>;
+  fields: Record<string, TypeInfo>;
 }
 
 /**
@@ -166,7 +180,7 @@ export interface UserDefinedTypeInfo {
  */
 export interface VariableInfo {
   name: string;
-  type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+  type: TypeInfo;
   value: unknown;
   isConstant: boolean;
 }
@@ -184,7 +198,7 @@ export enum ParameterMode {
  */
 export interface ParameterInfo {
   name: string;
-  type: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo;
+  type: TypeInfo;
   mode: ParameterMode;
 }
 
@@ -194,5 +208,5 @@ export interface ParameterInfo {
 export interface RoutineSignature {
   name: string;
   parameters: ParameterInfo[];
-  returnType?: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo; // Only for functions
+  returnType?: TypeInfo; // Only for functions
 }

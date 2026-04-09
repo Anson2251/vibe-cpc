@@ -1,4 +1,4 @@
-PROCEDURE test()                                          14:18:39
+PROCEDURE test()
     OUTPUT "Hello, world"
 ENDPROCEDURE
 
