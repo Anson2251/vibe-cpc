@@ -136,14 +136,14 @@ interface IOInterface {
 - [x] Component architecture planning
 
 ### In Progress
-- [ ] Core interface implementations
-- [ ] Lexer development
-- [ ] Parser development
-- [ ] Runtime engine development
+- [x] Core interface implementations
+- [x] Lexer development
+- [x] Parser development
+- [x] Runtime engine development
 
 ### Planned
-- [ ] Type system implementation
-- [ ] Error handling system
+- [x] Type system implementation
+- [x] Error handling system
 - [ ] Testing framework
 - [ ] Documentation and examples
 
@@ -224,12 +224,12 @@ npm run lint
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the GPL-3.0 license.
 
 ## Acknowledgments
 
 Based on the Cambridge International AS & A Level Computer Science 9618 pseudocode specification.
 
-This project is a testing codebase for vibe coding, and it is not intended for production use.
+This project is an experimental project for vibe coding, and is not intended for production use.
 
-Cooperated with GLM-4.5.
+Cooperated with GLM-4.5 & GPT-5.3-Codex.
