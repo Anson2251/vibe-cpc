@@ -451,6 +451,7 @@ export interface ASTVisitor<T> {
  * Base AST visitor implementation with default behavior
  */
 export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
+	/* eslint-disable @typescript-eslint/no-unsafe-type-assertion */
 	visit(node: ASTNode): T {
 		switch (node.type) {
 			case 'Program': return this.visitProgram(node as ProgramNode);

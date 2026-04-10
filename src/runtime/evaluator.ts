@@ -5,6 +5,8 @@
  * It interprets the abstract syntax tree and performs the operations specified by the pseudocode.
  */
 
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion */
+
 import {
 	ASTNode,
 	ProgramNode,
@@ -96,8 +98,8 @@ export class Evaluator {
 		this.context = new ExecutionContext(this.environment);
 		this.fileManager = new RuntimeFileManager(io);
 		this.fileOperations = new FileOperationEvaluator(this.fileManager, {
-			evaluateExpression: (expression) => this.evaluate(expression),
-			assignToTarget: (target, value, line, column) => this.assignValueToTarget(target, value, line, column)
+			evaluateExpression: async (expression) => this.evaluate(expression),
+			assignToTarget: async (target, value, line, column) => this.assignValueToTarget(target, value, line, column)
 		});
 		this.initializeBuiltInRoutines();
 	}
@@ -132,78 +134,102 @@ export class Evaluator {
 			this.context.currentColumn = node.column;
 		}
 
-			switch (node.type) {
+		switch (node.type) {
 			case 'VariableDeclaration':
-				return await this.evaluateVariableDeclaration(node as VariableDeclarationNode);
+				await this.evaluateVariableDeclaration(node as VariableDeclarationNode);
+				return undefined;
 
 			case 'DeclareStatement':
-				return await this.evaluateDeclareStatement(node as DeclareStatementNode);
+				await this.evaluateDeclareStatement(node as DeclareStatementNode);
+				return undefined;
 
 			case 'Assignment':
-				return await this.evaluateAssignment(node as AssignmentNode);
+				await this.evaluateAssignment(node as AssignmentNode);
+				return undefined;
 
 			case 'If':
-				return await this.evaluateIf(node as IfNode);
+				await this.evaluateIf(node as IfNode);
+				return undefined;
 
 			case 'Case':
-				return await this.evaluateCase(node as CaseNode);
+				await this.evaluateCase(node as CaseNode);
+				return undefined;
 
 			case 'For':
-				return await this.evaluateFor(node as ForNode);
+				await this.evaluateFor(node as ForNode);
+				return undefined;
 
 			case 'While':
-				return await this.evaluateWhile(node as WhileNode);
+				await this.evaluateWhile(node as WhileNode);
+				return undefined;
 
 			case 'Repeat':
-				return await this.evaluateRepeat(node as RepeatNode);
+				await this.evaluateRepeat(node as RepeatNode);
+				return undefined;
 
 			case 'ProcedureDeclaration':
-				return this.evaluateProcedureDeclaration(node as ProcedureDeclarationNode);
+				this.evaluateProcedureDeclaration(node as ProcedureDeclarationNode);
+				return undefined;
 
 			case 'FunctionDeclaration':
-				return this.evaluateFunctionDeclaration(node as FunctionDeclarationNode);
+				this.evaluateFunctionDeclaration(node as FunctionDeclarationNode);
+				return undefined;
 
 			case 'CallStatement':
-				return await this.evaluateCallStatement(node as CallStatementNode);
+				await this.evaluateCallStatement(node as CallStatementNode);
+				return undefined;
 
 			case 'Input':
-				return await this.evaluateInput(node as InputNode);
+				await this.evaluateInput(node as InputNode);
+				return undefined;
 
 			case 'Output':
-				return await this.evaluateOutput(node as OutputNode);
+				await this.evaluateOutput(node as OutputNode);
+				return undefined;
 
 			case 'Return':
-				return await this.evaluateReturn(node as ReturnNode);
+				await this.evaluateReturn(node as ReturnNode);
+				return undefined;
 
 			case 'OpenFile':
-				return await this.fileOperations.openFile(node as OpenFileNode);
+				await this.fileOperations.openFile(node as OpenFileNode);
+				return undefined;
 
 			case 'CloseFile':
-				return await this.fileOperations.closeFile(node as CloseFileNode);
+				await this.fileOperations.closeFile(node as CloseFileNode);
+				return undefined;
 
 			case 'ReadFile':
-				return await this.fileOperations.readFile(node as ReadFileNode);
+				await this.fileOperations.readFile(node as ReadFileNode);
+				return undefined;
 
 			case 'WriteFile':
-				return await this.fileOperations.writeFile(node as WriteFileNode);
+				await this.fileOperations.writeFile(node as WriteFileNode);
+				return undefined;
 
 			case 'Seek':
-				return await this.fileOperations.seek(node as SeekNode);
+				await this.fileOperations.seek(node as SeekNode);
+				return undefined;
 
 			case 'GetRecord':
-				return await this.fileOperations.getRecord(node as GetRecordNode);
+				await this.fileOperations.getRecord(node as GetRecordNode);
+				return undefined;
 
 			case 'PutRecord':
-				return await this.fileOperations.putRecord(node as PutRecordNode);
+				await this.fileOperations.putRecord(node as PutRecordNode);
+				return undefined;
 
 			case 'TypeDeclaration':
-				return this.evaluateTypeDeclaration(node as TypeDeclarationNode);
+				this.evaluateTypeDeclaration(node as TypeDeclarationNode);
+				return undefined;
 
 			case 'SetDeclaration':
-				return await this.evaluateSetDeclaration(node as SetDeclarationNode);
+				await this.evaluateSetDeclaration(node as SetDeclarationNode);
+				return undefined;
 
 			case 'ClassDeclaration':
-				return this.evaluateClassDeclaration(node as ClassDeclarationNode);
+				this.evaluateClassDeclaration(node as ClassDeclarationNode);
+				return undefined;
 
 			case 'BinaryExpression':
 				return this.evaluateBinaryExpression(node as BinaryExpressionNode);
@@ -221,7 +247,7 @@ export class Evaluator {
 				return this.evaluateArrayAccess(node as ArrayAccessNode);
 
 			case 'CallExpression':
-				return await this.evaluateCallExpression(node as CallExpressionNode);
+				return this.evaluateCallExpression(node as CallExpressionNode);
 
 			case 'MemberAccess':
 				return this.evaluateMemberAccess(node as MemberAccessNode);
@@ -367,7 +393,7 @@ export class Evaluator {
 		} else if (node.target.type === 'ArrayAccess') {
 			const arrayAccess = node.target as ArrayAccessNode;
 			const array = await this.evaluate(arrayAccess.array);
-			const indices = await Promise.all(arrayAccess.indices.map(index => this.evaluate(index)));
+			const indices = await Promise.all(arrayAccess.indices.map(async (index) => this.evaluate(index)));
 
 			if (arrayAccess.array.type === 'Identifier') {
 				const typeInfo = this.environment.getType((arrayAccess.array as IdentifierNode).name);
@@ -704,7 +730,7 @@ export class Evaluator {
 		if (target.type === 'ArrayAccess') {
 			const arrayAccess = target as ArrayAccessNode;
 			const array = await this.evaluate(arrayAccess.array);
-			const indices = await Promise.all(arrayAccess.indices.map(index => this.evaluate(index)));
+			const indices = await Promise.all(arrayAccess.indices.map(async (index) => this.evaluate(index)));
 			this.setArrayElement(array, indices as number[], value);
 			return;
 		}
@@ -906,7 +932,7 @@ export class Evaluator {
 	 */
 	private async evaluateArrayAccess(node: ArrayAccessNode): Promise<unknown> {
 		const array = await this.evaluate(node.array);
-		const indices = await Promise.all(node.indices.map(index => this.evaluate(index)));
+		const indices = await Promise.all(node.indices.map(async (index) => this.evaluate(index)));
 
 		return this.getArrayElement(array, indices as number[]);
 	}
@@ -926,7 +952,7 @@ export class Evaluator {
 			const routineInfo = this.globalRoutines.get(routineName)!;
 
 			if (routineInfo.isBuiltIn && routineInfo.implementation) {
-				const args = await Promise.all(node.arguments.map(arg => this.evaluate(arg)));
+				const args = await Promise.all(node.arguments.map(async (arg) => this.evaluate(arg)));
 				return routineInfo.implementation(args, this.context);
 			}
 		}
@@ -935,7 +961,7 @@ export class Evaluator {
 		const signature = this.environment.getRoutine(routineName);
 
 		// Evaluate arguments
-		const args = await Promise.all(node.arguments.map(arg => this.evaluate(arg)));
+		const args = await Promise.all(node.arguments.map(async (arg) => this.evaluate(arg)));
 
 		// Create a new environment for the routine
 		const routineEnvironment = this.environment.createChild();
@@ -1292,7 +1318,7 @@ export class Evaluator {
 		if (Object.keys(type.fields).length > 0) {
 			const resolvedFields: Record<string, TypeInfo> = {};
 			for (const [fieldName, fieldType] of Object.entries(type.fields)) {
-				resolvedFields[fieldName] = this.resolveType(fieldType as TypeInfo, line, column, resolving);
+				resolvedFields[fieldName] = this.resolveType(fieldType, line, column, resolving);
 			}
 			return {
 				name: type.name,
@@ -1324,7 +1350,7 @@ export class Evaluator {
 
 		const resolvedFields: Record<string, TypeInfo> = {};
 		for (const [fieldName, fieldType] of Object.entries(resolved.fields)) {
-			resolvedFields[fieldName] = this.resolveType(fieldType as TypeInfo, line, column, resolving);
+			resolvedFields[fieldName] = this.resolveType(fieldType, line, column, resolving);
 		}
 		resolving.delete(lookupName);
 

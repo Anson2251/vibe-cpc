@@ -102,8 +102,12 @@ export class NodeIOImpl implements IOInterface {
 
 			await handle.read(buffer, 0, recordSize, position * recordSize);
 
-			// Trim null bytes and return as string
-			return buffer.toString('utf8').replace(/\0+$/, '');
+			// Trim trailing NUL bytes and return as string
+			let text = buffer.toString('utf8');
+			while (text.endsWith('\u0000')) {
+				text = text.slice(0, -1);
+			}
+			return text;
 		} catch (error) {
 			throw new Error(`Failed to read record at position ${position}: ${error instanceof Error ? error.message : String(error)}`);
 		}

@@ -40,7 +40,7 @@ export function parseOpenFileStatement(ctx: FileOperationParserContext): OpenFil
 	return {
 		type: 'OpenFile',
 		fileIdentifier,
-		mode: modeValue as 'READ' | 'WRITE' | 'APPEND' | 'RANDOM',
+		mode: modeValue,
 		line,
 		column
 	};

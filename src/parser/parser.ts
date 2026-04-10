@@ -5,6 +5,8 @@
  * It converts a stream of tokens into an abstract syntax tree (AST).
  */
 
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion */
+
 import { Token, TokenType } from '../lexer/tokens';
 import {
 	ProgramNode,
@@ -743,7 +745,7 @@ export class Parser {
 			check: (type: TokenType) => this.check(type),
 			match: (type: TokenType) => this.match(type),
 			consume: (type: TokenType, message: string) => this.consume(type, message),
-			consumeNewline: () => this.consumeNewline(),
+			consumeNewline: () => { this.consumeNewline(); },
 			error: (token: { value: unknown }, message: string) => this.error(token as Token, message)
 		};
 	}
@@ -1564,21 +1566,24 @@ export class Parser {
 		while (!this.isAtEnd()) {
 			if (this.previous().type === TokenType.NEWLINE) return;
 
-			switch (this.peek().type) {
-				case TokenType.DECLARE:
-				case TokenType.IF:
-				case TokenType.FOR:
-				case TokenType.WHILE:
-				case TokenType.REPEAT:
-				case TokenType.PROCEDURE:
-				case TokenType.FUNCTION:
-				case TokenType.INPUT:
-				case TokenType.OUTPUT:
-				case TokenType.OPENFILE:
-				case TokenType.CLOSEFILE:
-				case TokenType.RETURNS:
-				case TokenType.CALL:
-					return;
+			const statementStartTokens = new Set<TokenType>([
+				TokenType.DECLARE,
+				TokenType.IF,
+				TokenType.FOR,
+				TokenType.WHILE,
+				TokenType.REPEAT,
+				TokenType.PROCEDURE,
+				TokenType.FUNCTION,
+				TokenType.INPUT,
+				TokenType.OUTPUT,
+				TokenType.OPENFILE,
+				TokenType.CLOSEFILE,
+				TokenType.RETURNS,
+				TokenType.CALL
+			]);
+
+			if (statementStartTokens.has(this.peek().type)) {
+				return;
 			}
 
 			this.advance();
