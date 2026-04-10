@@ -122,10 +122,11 @@ export interface Scope {
 /**
  * Extended routine information with execution details
  */
-export interface RoutineInfo extends RoutineSignature {
+export interface RoutineInfo<TArgs extends unknown[] = unknown[], TReturn = unknown>
+    extends RoutineSignature {
     node?: ASTNode; // AST node for the routine
     isBuiltIn?: boolean;
-    implementation?: (args: unknown[], context: ExecutionContext) => unknown;
+    implementation?: (...args: TArgs) => TReturn;
     // Override returnType to allow complex types
     returnType?: TypeInfo;
 }

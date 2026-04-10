@@ -1,4 +1,4 @@
-import { TokenType } from '../lexer/tokens';
+import { Token, TokenType } from '../lexer/tokens';
 import {
 	ExpressionNode,
 	OpenFileNode,
@@ -17,9 +17,9 @@ export interface FileOperationParserContext {
 	primary(): ExpressionNode;
 	check(type: TokenType): boolean;
 	match(type: TokenType): boolean;
-	consume(type: TokenType, message: string): { value: unknown };
+	consume(type: TokenType, message: string): Token;
 	consumeNewline(): void;
-	error(token: { value: unknown }, message: string): Error;
+	error(token: Token, message: string): Error;
 }
 
 export function parseOpenFileStatement(ctx: FileOperationParserContext): OpenFileNode {

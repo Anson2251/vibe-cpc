@@ -12,6 +12,8 @@ import { Environment, ExecutionContext } from "./runtime/environment";
 import type { IOInterface } from "./io/io-interface";
 import type { ProgramNode } from "./parser/ast-nodes";
 import { PseudocodeError, ErrorHandler } from "./errors";
+import { InterpreterResult, toPseudocodeError } from "./result";
+import { err } from "neverthrow";
 
 function unescapeString(str: string) {
     const escapes: Record<string, string> = {
@@ -91,8 +93,60 @@ export class Interpreter {
             .join("\n")
             .trim();
 
+        const parseResult = this.parseResult(sourceCode);
+        if (parseResult.isErr()) {
+            return this.buildErrorResult(parseResult.error, startTime);
+        }
+
+        const ast = parseResult.value;
+
+        if (this.options.debug) {
+            this.io.output(`AST: ${JSON.stringify(ast, null, 2)}\n`);
+            this.io.output("Evaluating...\n");
+        }
+
+        // Set up execution environment
+        const environment = new Environment();
+        const context = new ExecutionContext(environment);
+        const evaluator = new Evaluator(this.io);
+
+        // Override the evaluator's context with our own
+        evaluator.context = context;
+
+        const evalResult = await evaluator.evaluateProgramR(ast);
+        if (evalResult.isErr()) {
+            return this.buildErrorResult(evalResult.error, startTime);
+        }
+
+        return this.buildSuccessResult(evalResult.value, startTime);
+    }
+
+    /**
+     * Execute a pseudocode program from a file
+     */
+    async executeFile(filePath: string): Promise<ExecutionResult> {
+        const startTime = Date.now();
         try {
-            // Step 1: Lexical analysis - Convert source code into tokens
+            const sourceCode = await this.io.readFile(filePath);
+            return await this.execute(sourceCode);
+        } catch (error) {
+            return this.buildErrorResult(toPseudocodeError(error), startTime);
+        }
+    }
+
+    /**
+     * Parse source code into an AST without executing it
+     */
+    parse(sourceCode: string): ProgramNode {
+        const result = this.parseResult(sourceCode);
+        if (result.isErr()) {
+            throw result.error;
+        }
+        return result.value;
+    }
+
+    private parseResult(sourceCode: string): InterpreterResult<ProgramNode> {
+        try {
             if (this.options.debug) {
                 this.io.output("Lexical analysis...\n");
             }
@@ -103,140 +157,44 @@ export class Interpreter {
             if (this.options.debug) {
                 this.io.output(`Tokens: ${tokens.length}\n`);
                 this.io.output(`Tokens: \n${tokens.map((token) => token.toString()).join("\n")}\n`);
-            }
-
-            // Step 2: Parsing - Convert tokens into Abstract Syntax Tree (AST)
-            if (this.options.debug) {
                 this.io.output("Parsing...\n");
             }
 
             const parser = new Parser(tokens);
-            const ast = parser.parse();
-
-            if (this.options.debug) {
-                this.io.output(`AST: ${JSON.stringify(ast, null, 2)}\n`);
-            }
-
-            // Step 3: Evaluation - Execute the AST
-            if (this.options.debug) {
-                this.io.output("Evaluating...\n");
-            }
-
-            // Set up execution environment
-            const environment = new Environment();
-            const context = new ExecutionContext(environment);
-            const evaluator = new Evaluator(this.io);
-
-            // Override the evaluator's context with our own
-            evaluator.context = context;
-
-            // Evaluate the program and get the result
-            const result = await evaluator.evaluateProgram(ast);
-
-            // Calculate execution time
-            const endTime = Date.now();
-            const executionTime = endTime - startTime;
-
-            // Return successful execution result
-            return {
-                success: true,
-                output:
-                    result !== undefined
-                        ? typeof result === "object" && result !== null
-                            ? JSON.stringify(result)
-                            : // eslint-disable-next-line @typescript-eslint/no-base-to-string
-                              String(result)
-                        : undefined,
-                executionTime,
-                steps: this.executionSteps,
-            };
+            return parser.parse().mapErr((error): PseudocodeError => error);
         } catch (error) {
-            if (this.options.debug) console.error(error);
-            // Calculate execution time in case of error
-            const endTime = Date.now();
-            const executionTime = endTime - startTime;
-
-            let pseudocodeError: PseudocodeError;
-
-            // Handle different types of errors
-            if (error instanceof PseudocodeError) {
-                pseudocodeError = error;
-            } else {
-                // Convert generic errors to PseudocodeError
-                pseudocodeError = new PseudocodeError(
-                    error instanceof Error ? error.message : String(error),
-                );
-            }
-
-            // Report the error
-            this.errorHandler.error(
-                pseudocodeError.message,
-                pseudocodeError.line,
-                pseudocodeError.column,
-            );
-
-            return {
-                success: false,
-                error: pseudocodeError,
-                executionTime,
-                steps: this.executionSteps,
-            };
+            return err(toPseudocodeError(error));
         }
     }
 
-    /**
-     * Execute a pseudocode program from a file
-     */
-    async executeFile(filePath: string): Promise<ExecutionResult> {
-        try {
-            const sourceCode = await this.io.readFile(filePath);
-            return await this.execute(sourceCode);
-        } catch (error) {
-            const endTime = Date.now();
-
-            let pseudocodeError: PseudocodeError;
-
-            if (error instanceof PseudocodeError) {
-                pseudocodeError = error;
-            } else {
-                // Convert generic errors to PseudocodeError
-                pseudocodeError = new PseudocodeError(
-                    error instanceof Error ? error.message : String(error),
-                );
-            }
-
-            // Report the error
-            this.errorHandler.error(
-                pseudocodeError.message,
-                pseudocodeError.line,
-                pseudocodeError.column,
-            );
-
-            return {
-                success: false,
-                error: pseudocodeError,
-                executionTime: endTime - Date.now(),
-                steps: this.executionSteps,
-            };
-        }
+    private buildSuccessResult(result: unknown, startTime: number): ExecutionResult {
+        return {
+            success: true,
+            output:
+                result !== undefined
+                    ? typeof result === "object" && result !== null
+                        ? JSON.stringify(result)
+                        : // eslint-disable-next-line @typescript-eslint/no-base-to-string
+                          String(result)
+                    : undefined,
+            executionTime: Date.now() - startTime,
+            steps: this.executionSteps,
+        };
     }
 
-    /**
-     * Parse source code into an AST without executing it
-     */
-    parse(sourceCode: string): ProgramNode {
-        try {
-            const lexer = new Lexer(sourceCode);
-            const tokens = lexer.tokenize();
-            const parser = new Parser(tokens);
-            return parser.parse();
-        } catch (error) {
-            if (error instanceof PseudocodeError) {
-                throw error;
-            }
-
-            throw new PseudocodeError(error instanceof Error ? error.message : String(error));
+    private buildErrorResult(error: PseudocodeError, startTime: number): ExecutionResult {
+        if (this.options.debug) {
+            console.error(error);
         }
+
+        this.errorHandler.error(error.message, error.line, error.column);
+
+        return {
+            success: false,
+            error,
+            executionTime: Date.now() - startTime,
+            steps: this.executionSteps,
+        };
     }
 
     /**

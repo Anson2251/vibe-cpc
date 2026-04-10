@@ -75,6 +75,154 @@ describe("Interpreter Integration Tests", () => {
         });
     });
 
+    describe("Built-in functions", () => {
+        test("should execute string, numeric and date built-ins", async () => {
+            const code = `
+        DECLARE s : STRING
+        DECLARE n : REAL
+        DECLARE d : DATE
+        DECLARE r : REAL
+
+        s <- "AbC123"
+        OUTPUT LEFT(s, 3)
+        OUTPUT RIGHT(s, 3)
+        OUTPUT MID(s, 2, 3)
+        OUTPUT TO_UPPER("jim 803")
+        OUTPUT TO_LOWER("JIM 803")
+        OUTPUT LCASE('W')
+        OUTPUT UCASE('h')
+        OUTPUT NUM_TO_STR(-12.5)
+        n <- STR_TO_NUM("23.45")
+        OUTPUT n
+        OUTPUT IS_NUM("123.0")
+        OUTPUT IS_NUM("12x")
+        OUTPUT ASC('A')
+        OUTPUT CHR(66)
+        OUTPUT INT(27.5415)
+
+        d <- SETDATE(15, 6, 2024)
+        OUTPUT DAY(d)
+        OUTPUT MONTH(d)
+        OUTPUT YEAR(d)
+        OUTPUT DAYINDEX(d)
+
+        r <- RAND(10)
+        IF r >= 0 AND r < 10 THEN
+          OUTPUT "RAND_OK"
+        ELSE
+          OUTPUT "RAND_BAD"
+        ENDIF
+
+        IF YEAR(TODAY()) >= 2000 THEN
+          OUTPUT "TODAY_OK"
+        ELSE
+          OUTPUT "TODAY_BAD"
+        ENDIF
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, [
+                "AbC",
+                "123",
+                "C12",
+                "JIM 803",
+                "jim 803",
+                "w",
+                "H",
+                "-12.5",
+                "23.45",
+                "true",
+                "false",
+                "65",
+                "B",
+                "27",
+                "15",
+                "6",
+                "2024",
+                "7",
+                "RAND_OK",
+                "TODAY_OK",
+            ]);
+        });
+
+        test("should fail invalid built-in parameters", async () => {
+            const code = `
+        OUTPUT CHR(999)
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "CHR expects an integer between 0 and 127");
+        });
+    });
+
+    describe("Set support", () => {
+        test("should support set assignment using bracket literals", async () => {
+            const code = `
+        TYPE TLetterSet = SET OF CHAR
+        TYPE TScoreSet = SET OF INTEGER
+
+        DECLARE Vowels : TLetterSet
+        DECLARE PrimeScores : TScoreSet
+
+        Vowels <- ['A', 'E', 'I', 'O', 'U']
+        PrimeScores <- [2, 3, 5, 7, 11]
+
+        IF 'E' IN Vowels THEN
+          OUTPUT "VOWEL_OK"
+        ELSE
+          OUTPUT "VOWEL_BAD"
+        ENDIF
+
+        IF 7 IN PrimeScores THEN
+          OUTPUT "PRIME_OK"
+        ELSE
+          OUTPUT "PRIME_BAD"
+        ENDIF
+
+        IF 4 IN PrimeScores THEN
+          OUTPUT "NOT_EXPECTED"
+        ELSE
+          OUTPUT "NOT_PRIME_OK"
+        ENDIF
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["VOWEL_OK", "PRIME_OK", "NOT_PRIME_OK"]);
+        });
+
+        test("should support DEFINE set and IN membership", async () => {
+            const code = `
+        TYPE LetterSet = SET OF CHAR
+        DEFINE Vowels ('A','E','I','O','U') : LetterSet
+
+        IF 'E' IN Vowels THEN
+          OUTPUT "YES"
+        ELSE
+          OUTPUT "NO"
+        ENDIF
+
+        IF 'Z' IN Vowels THEN
+          OUTPUT "YES"
+        ELSE
+          OUTPUT "NO"
+        ENDIF
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["YES", "NO"]);
+        });
+
+        test("should reject invalid set element types", async () => {
+            const code = `
+        TYPE LetterSet = SET OF CHAR
+        DEFINE Vowels ('A', 1) : LetterSet
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "Expected CHAR");
+        });
+    });
+
     describe("Control structures", () => {
         test("should execute IF statement", async () => {
             const code = `

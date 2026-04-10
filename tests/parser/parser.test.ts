@@ -30,7 +30,11 @@ describe("Parser", () => {
         const lexer = new Lexer(code);
         const tokens = lexer.tokenize();
         const parser = new Parser(tokens);
-        return parser.parse();
+        const result = parser.parse();
+        if (result.isErr()) {
+            throw result.error;
+        }
+        return result.value;
     }
 
     describe("Basic parsing", () => {

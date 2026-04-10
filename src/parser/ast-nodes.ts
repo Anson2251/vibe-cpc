@@ -372,6 +372,14 @@ export interface TypeCastNode extends ExpressionNode {
 	expression: ExpressionNode;
 }
 
+/**
+ * Set literal expression (e.g., ['A', 'E', 'I'])
+ */
+export interface SetLiteralNode extends ExpressionNode {
+	type: 'SetLiteral';
+	elements: ExpressionNode[];
+}
+
 // Helper node types
 
 /**
@@ -442,6 +450,7 @@ export interface ASTVisitor<T> {
 	visitMemberAccess(node: MemberAccessNode): T;
 	visitNewExpression(node: NewExpressionNode): T;
 	visitTypeCast(node: TypeCastNode): T;
+	visitSetLiteral(node: SetLiteralNode): T;
 	visitParameter(node: ParameterNode): T;
 	visitArrayType(node: ArrayTypeNode): T;
 	visitEOF(node: EOFNode): T;
@@ -490,6 +499,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
 			case 'MemberAccess': return this.visitMemberAccess(node as MemberAccessNode);
 			case 'NewExpression': return this.visitNewExpression(node as NewExpressionNode);
 			case 'TypeCast': return this.visitTypeCast(node as TypeCastNode);
+			case 'SetLiteral': return this.visitSetLiteral(node as SetLiteralNode);
 			case 'Parameter': return this.visitParameter(node as ParameterNode);
 			case 'ArrayType': return this.visitArrayType(node as ArrayTypeNode);
 			case 'EOF': return this.visitEOF(node as EOFNode);
@@ -535,6 +545,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
 	abstract visitMemberAccess(node: MemberAccessNode): T;
 	abstract visitNewExpression(node: NewExpressionNode): T;
 	abstract visitTypeCast(node: TypeCastNode): T;
+	abstract visitSetLiteral(node: SetLiteralNode): T;
 	abstract visitParameter(node: ParameterNode): T;
 	abstract visitArrayType(node: ArrayTypeNode): T;
 	abstract visitEOF(node: EOFNode): T;
