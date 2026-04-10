@@ -27,9 +27,7 @@ OUTPUT x
         const io = new MockIO();
         const interpreter = new Interpreter(io);
 
-        const result = await interpreter.execute(
-            "DECLARE x : INTEGER\\nx <- 7\\nOUTPUT x",
-        );
+        const result = await interpreter.execute("DECLARE x : INTEGER\\nx <- 7\\nOUTPUT x");
 
         expect(result.success).toBe(true);
         expect(io.getOutput().trim()).toBe("7");

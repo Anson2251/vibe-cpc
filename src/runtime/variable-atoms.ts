@@ -862,12 +862,12 @@ export class UserDefinedAtom extends VariableAtom {
         return this._userDefinedType.fields;
     }
 
-	validateValue(value: unknown): void {
-		if (!isRecord(value)) {
-			throw new RuntimeError(
-				`Expected user-defined type '${this._userDefinedType.name}', got ${typeof value}`,
-			);
-		}
+    validateValue(value: unknown): void {
+        if (!isRecord(value)) {
+            throw new RuntimeError(
+                `Expected user-defined type '${this._userDefinedType.name}', got ${typeof value}`,
+            );
+        }
 
         // Check all fields
         for (const [fieldName, fieldType] of Object.entries(this._userDefinedType.fields)) {
@@ -877,9 +877,9 @@ export class UserDefinedAtom extends VariableAtom {
                 );
             }
 
-			this.validateFieldValue(value[fieldName], fieldType);
-		}
-	}
+            this.validateFieldValue(value[fieldName], fieldType);
+        }
+    }
 
     convertValue(value: unknown): unknown {
         // For user-defined types, we'll validate but not automatically convert
@@ -1033,8 +1033,12 @@ export class EnumAtom extends VariableAtom {
 
     compareTo(other: VariableAtom): ComparisonResult {
         if (other instanceof EnumAtom && other.type.name === this.type.name) {
-            const a = this._enumType.values.indexOf(ensureString(this._value, "EnumAtom.compareTo(this)"));
-            const b = other.type.values.indexOf(ensureString(other.value, "EnumAtom.compareTo(other)"));
+            const a = this._enumType.values.indexOf(
+                ensureString(this._value, "EnumAtom.compareTo(this)"),
+            );
+            const b = other.type.values.indexOf(
+                ensureString(other.value, "EnumAtom.compareTo(other)"),
+            );
             if (a < b) return ComparisonResult.LESS_THAN;
             if (a > b) return ComparisonResult.GREATER_THAN;
             return ComparisonResult.EQUAL;
@@ -1074,7 +1078,11 @@ export class SetAtom extends VariableAtom {
     }
 
     copy(): VariableAtom {
-        return new SetAtom(new Set(ensureSet(this._value, "SetAtom.copy")), this._setType, this._isConstant);
+        return new SetAtom(
+            new Set(ensureSet(this._value, "SetAtom.copy")),
+            this._setType,
+            this._isConstant,
+        );
     }
 
     compareTo(other: VariableAtom): ComparisonResult {

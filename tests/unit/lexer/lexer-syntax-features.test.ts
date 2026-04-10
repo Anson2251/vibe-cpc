@@ -22,7 +22,9 @@ describe("Lexer syntax feature coverage", () => {
     });
 
     test("tokenizes set/define/in syntax tokens", () => {
-        const tokens = new Lexer("TYPE T = SET OF CHAR DEFINE V('A') : T IF 'A' IN V THEN ENDIF").tokenize();
+        const tokens = new Lexer(
+            "TYPE T = SET OF CHAR DEFINE V('A') : T IF 'A' IN V THEN ENDIF",
+        ).tokenize();
         const types = tokens.map((token) => token.type);
 
         expect(types).toContain(TokenType.TYPE);

@@ -84,7 +84,11 @@ CLASS Child INHERITS Parent
         const ast = parseOrThrow("obj <- NEW Person(1, 'A')");
 
         const assignment = ast.body[0] as AssignmentNode;
-        const expr = assignment.value as { type: string; className?: string; arguments?: unknown[] };
+        const expr = assignment.value as {
+            type: string;
+            className?: string;
+            arguments?: unknown[];
+        };
         expect(expr.type).toBe("NewExpression");
         expect(expr.className).toBe("Person");
         expect(expr.arguments).toHaveLength(2);

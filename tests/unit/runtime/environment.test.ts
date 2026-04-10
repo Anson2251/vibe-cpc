@@ -17,9 +17,7 @@ describe("Environment", () => {
         const env = new Environment();
         env.define("name", PseudocodeType.STRING, "A");
 
-        expect(() => env.define("name", PseudocodeType.STRING, "B")).toThrow(
-            "already declared",
-        );
+        expect(() => env.define("name", PseudocodeType.STRING, "B")).toThrow("already declared");
     });
 
     test("throws for assigning undefined variable", () => {

@@ -23,7 +23,7 @@ import { VariableAtom, VariableAtomFactory } from "./variable-atoms";
 // import { IOInterface } from '../io/io-interface';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -122,8 +122,10 @@ export interface Scope {
 /**
  * Extended routine information with execution details
  */
-export interface RoutineInfo<TArgs extends unknown[] = unknown[], TReturn = unknown>
-    extends RoutineSignature {
+export interface RoutineInfo<
+    TArgs extends unknown[] = unknown[],
+    TReturn = unknown,
+> extends RoutineSignature {
     node?: ASTNode; // AST node for the routine
     isBuiltIn?: boolean;
     implementation?: (...args: TArgs) => TReturn;
@@ -403,12 +405,12 @@ export class Environment {
     /**
      * Validate a user-defined type
      */
-	private validateUserDefinedType(value: unknown, expectedType: UserDefinedTypeInfo): void {
-		if (!isRecord(value)) {
-			throw new RuntimeError(
-				`Expected user-defined type '${expectedType.name}', got ${typeof value}`,
-			);
-		}
+    private validateUserDefinedType(value: unknown, expectedType: UserDefinedTypeInfo): void {
+        if (!isRecord(value)) {
+            throw new RuntimeError(
+                `Expected user-defined type '${expectedType.name}', got ${typeof value}`,
+            );
+        }
 
         // Check all fields
         for (const [fieldName, fieldType] of Object.entries(expectedType.fields)) {
@@ -418,9 +420,9 @@ export class Environment {
                 );
             }
 
-			this.validateType(value[fieldName], fieldType);
-		}
-	}
+            this.validateType(value[fieldName], fieldType);
+        }
+    }
 
     private validateEnumType(value: unknown, expectedType: EnumTypeInfo): void {
         if (typeof value !== "string" || !expectedType.values.includes(value)) {

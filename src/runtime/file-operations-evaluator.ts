@@ -67,7 +67,11 @@ export class FileOperationEvaluator {
                 ResultAsync.fromPromise(
                     Promise.resolve(this.fileManager.readLine(fileIdentifier)),
                     (error: unknown) =>
-                        new FileIOError(`Failed to read file: ${String(error)}`, node.line, node.column),
+                        new FileIOError(
+                            `Failed to read file: ${String(error)}`,
+                            node.line,
+                            node.column,
+                        ),
                 ).andThen((content) =>
                     this.ctx.assignToTarget(node.target, content, node.line, node.column),
                 ),
@@ -116,7 +120,11 @@ export class FileOperationEvaluator {
                 ResultAsync.fromPromise(
                     this.fileManager.getRecord(fileIdentifier),
                     (error: unknown) =>
-                        new FileIOError(`Failed to get record: ${String(error)}`, node.line, node.column),
+                        new FileIOError(
+                            `Failed to get record: ${String(error)}`,
+                            node.line,
+                            node.column,
+                        ),
                 ).andThen((record) =>
                     this.ctx.assignToTarget(node.target, record, node.line, node.column),
                 ),
@@ -126,17 +134,19 @@ export class FileOperationEvaluator {
     putRecordR(node: PutRecordNode): RuntimeAsyncResult<void> {
         return this.evaluateFileIdentifierR(node.fileIdentifier, node.line, node.column).andThen(
             (fileIdentifier) =>
-                this.ctx.evaluateExpression(node.source).andThen((source) =>
-                    ResultAsync.fromPromise(
-                        this.fileManager.putRecord(fileIdentifier, String(source)),
-                        (error: unknown) =>
-                            new FileIOError(
-                                `Failed to put record: ${String(error)}`,
-                                node.line,
-                                node.column,
-                            ),
+                this.ctx
+                    .evaluateExpression(node.source)
+                    .andThen((source) =>
+                        ResultAsync.fromPromise(
+                            this.fileManager.putRecord(fileIdentifier, String(source)),
+                            (error: unknown) =>
+                                new FileIOError(
+                                    `Failed to put record: ${String(error)}`,
+                                    node.line,
+                                    node.column,
+                                ),
+                        ),
                     ),
-                ),
         );
     }
 
@@ -233,7 +243,11 @@ export class FileOperationEvaluator {
         }
     }
 
-    async evaluateEOFCall(args: ExpressionNode[], line?: number, column?: number): Promise<boolean> {
+    async evaluateEOFCall(
+        args: ExpressionNode[],
+        line?: number,
+        column?: number,
+    ): Promise<boolean> {
         const result = await this.evaluateEOFCallR(args, line, column);
         if (result.isErr()) {
             throw result.error;
