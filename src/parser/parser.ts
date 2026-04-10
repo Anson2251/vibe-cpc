@@ -116,6 +116,11 @@ export class Parser {
 				return null;
 			}
 
+			const standaloneKeywordMessage = this.unexpectedStandaloneKeywordMessage(this.peek().type);
+			if (standaloneKeywordMessage !== null) {
+				throw this.error(this.peek(), standaloneKeywordMessage);
+			}
+
 			// Check for different statement types
 			if (this.match(TokenType.DECLARE)) {
 				return this.declareStatement();
@@ -234,6 +239,10 @@ export class Parser {
 		return expression.type === 'Identifier' || expression.type === 'ArrayAccess';
 	}
 
+	private isAssignmentTargetNode(expression: ExpressionNode): expression is IdentifierNode | ArrayAccessNode | MemberAccessNode {
+		return expression.type === 'Identifier' || expression.type === 'ArrayAccess' || expression.type === 'MemberAccess';
+	}
+
 	private numberLiteralValue(expression: ExpressionNode, message: string): number {
 		if (!this.isNumberLiteral(expression)) {
 			throw this.error(this.peek(), message);
@@ -250,6 +259,55 @@ export class Parser {
 			throw this.error(token, message);
 		}
 		return token.value;
+	}
+
+	private describeToken(token: Token): string {
+		if (token.type === TokenType.EOF_TOKEN) {
+			return 'end of input';
+		}
+		if (token.type === TokenType.NEWLINE) {
+			return 'newline';
+		}
+		if (typeof token.value === 'string' && token.value.length > 0) {
+			return `'${token.value}'`;
+		}
+		return token.type;
+	}
+
+	private addFoundTokenToMessage(message: string, token: Token): string {
+		if (/\bfound\b/i.test(message)) {
+			return message;
+		}
+		return `${message}, found ${this.describeToken(token)}`;
+	}
+
+	private unexpectedStandaloneKeywordMessage(tokenType: TokenType): string | null {
+		switch (tokenType) {
+			case TokenType.ELSE:
+				return "Unexpected 'ELSE' without a matching IF block";
+			case TokenType.ENDIF:
+				return "Unexpected 'ENDIF' without a matching IF block";
+			case TokenType.THEN:
+				return "'THEN' can only be used after an IF condition";
+			case TokenType.NEXT:
+				return "Unexpected 'NEXT' without a matching FOR loop";
+			case TokenType.ENDWHILE:
+				return "Unexpected 'ENDWHILE' without a matching WHILE loop";
+			case TokenType.UNTIL:
+				return "Unexpected 'UNTIL' without a matching REPEAT block";
+			case TokenType.ENDCASE:
+				return "Unexpected 'ENDCASE' without a matching CASE block";
+			case TokenType.ENDTYPE:
+				return "Unexpected 'ENDTYPE' without a matching TYPE block";
+			case TokenType.ENDPROCEDURE:
+				return "Unexpected 'ENDPROCEDURE' without a matching PROCEDURE block";
+			case TokenType.ENDFUNCTION:
+				return "Unexpected 'ENDFUNCTION' without a matching FUNCTION block";
+			case TokenType.ENDCLASS:
+				return "Unexpected 'ENDCLASS' without a matching CLASS block";
+			default:
+				return null;
+		}
 	}
 
 	private tokenInteger(token: Token, message: string): number {
@@ -274,6 +332,10 @@ export class Parser {
 
 	private isCallExpression(expression: ExpressionNode): expression is CallExpressionNode {
 		return expression.type === 'CallExpression';
+	}
+
+	private isBinaryExpression(expression: ExpressionNode): expression is BinaryExpressionNode {
+		return expression.type === 'BinaryExpression';
 	}
 
 	/**
@@ -317,7 +379,7 @@ export class Parser {
 		const column = this.previous().column;
 
 		const condition = this.expression();
-		this.consume(TokenType.THEN, "Expected 'THEN' after IF condition, found " + String(this.peek().value));
+		this.consume(TokenType.THEN, "Expected 'THEN' after IF condition");
 		this.consumeNewline();
 
 		const thenBranch: StatementNode[] = [];
@@ -1086,6 +1148,18 @@ export class Parser {
 			return assignment;
 		}
 
+		if (this.check(TokenType.EQUAL) && this.isAssignmentTargetNode(expr)) {
+			throw this.error(this.peek(), "Use '<-' for assignment instead of '='");
+		}
+
+		if (
+			this.isBinaryExpression(expr) &&
+			expr.operator === '=' &&
+			this.isAssignmentTargetNode(expr.left)
+		) {
+			throw this.error(this.previous(), "Use '<-' for assignment instead of '='");
+		}
+
 		// Expression statement (e.g., function call)
 		this.consumeNewline();
 
@@ -1506,7 +1580,7 @@ export class Parser {
 			return callExpression;
 		}
 
-		throw this.error(this.peek(), "Expected expression, found " + String(this.peek().value));
+		throw this.error(this.peek(), `Expected expression, found ${this.describeToken(this.peek())}`);
 	}
 
 	/**
@@ -1633,7 +1707,11 @@ export class Parser {
 	}
 
 	private peekOffset(offset: number): Token {
-		return this.tokens[this.current + offset];
+		const index = this.current + offset;
+		if (index >= this.tokens.length) {
+			return this.tokens[this.tokens.length - 1];
+		}
+		return this.tokens[index];
 	}
 
 	/**
@@ -1649,7 +1727,7 @@ export class Parser {
 	private consume(type: TokenType, message: string): Token {
 		if (this.check(type)) return this.advance();
 
-		throw this.error(this.peek(), message);
+		throw this.error(this.peek(), this.addFoundTokenToMessage(message, this.peek()));
 	}
 
 	/*
@@ -1658,7 +1736,7 @@ export class Parser {
 	private consumeLike(types: TokenType[], message: string): Token {
 		if (types.includes(this.peek().type)) return this.advance();
 
-		throw this.error(this.peek(), message);
+		throw this.error(this.peek(), this.addFoundTokenToMessage(message, this.peek()));
 	}
 
 	/**

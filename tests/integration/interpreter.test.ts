@@ -719,6 +719,72 @@ describe("Interpreter Integration Tests", () => {
         });
     });
 
+    describe("Edge cases and failure modes", () => {
+        test("should fail on division by zero", async () => {
+            const code = `
+        DECLARE a : INTEGER
+        DECLARE b : INTEGER
+        a <- 10
+        b <- 0
+        OUTPUT a DIV b
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "Division by zero");
+        });
+
+        test("should fail when reading undefined variable", async () => {
+            const code = `
+        OUTPUT notDeclared
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "Undefined variable");
+        });
+
+        test("should fail EOF when called with wrong argument count", async () => {
+            const code = `
+        OUTPUT EOF("a.txt", "b.txt")
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "EOF expects exactly one argument");
+        });
+
+        test("should fail reading file opened in WRITE mode", async () => {
+            const code = `
+        DECLARE line : STRING
+        OPENFILE "mode.txt" FOR WRITE
+        READFILE "mode.txt", line
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "open in WRITE mode");
+        });
+
+        test("should fail seek for negative random record position", async () => {
+            const code = `
+        OPENFILE "records.dat" FOR RANDOM
+        SEEK "records.dat", -1
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "Invalid random file position");
+        });
+
+        test("should execute descending FOR loop with negative step", async () => {
+            const code = `
+        DECLARE i : INTEGER
+        FOR i <- 5 TO 1 STEP -2
+          OUTPUT i
+        NEXT i
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["5", "3", "1"]);
+        });
+    });
+
     // describe('Error handling', () => {
     // 	test('should handle division by zero', async () => {
     // 		const code = `
