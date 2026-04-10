@@ -402,7 +402,18 @@ The set composite data type should be declared as follows:
 
 This user-defined data type holds data about vowels.
 ```
-DEFINE Vowels ('A','E','I','O','U'): LetterSet
+TYPE <identifier> = SET OF <data type>
+```
+
+**Example**:
+
+```
+DECLARE Vowels : TLetterSet
+DECLaire PrimeScores : TScoreSet
+
+// Assigning values (often shown as a comma-separated list in brackets)
+Vowels <- ['A', 'E', 'I', 'O', 'U']
+PrimeScores <- [2, 3, 5, 7, 11]
 ```
 
 ### 4.2 Using user-defined data types
