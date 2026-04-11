@@ -15,6 +15,11 @@ export type { CLIInterface, CLIOptions } from "./cli/node-index";
 // IO Interface
 export type { IOInterface } from "./io/io-interface";
 export { NodeIOImpl } from "./io/node-io-impl";
+export {
+    BrowserIOImpl,
+    type BrowserFileSystemAdapter,
+    type BrowserIOOptions,
+} from "./io/browser-io-impl";
 
 // Import for convenience functions
 import { Interpreter as InterpreterClass } from "./interpreter";
