@@ -22,6 +22,7 @@ import {
     CallStatementNode,
     InputNode,
     OutputNode,
+    DebuggerNode,
     ReturnNode,
     OpenFileNode,
     CloseFileNode,
@@ -166,6 +167,10 @@ export class Parser {
 
             if (this.match(TokenType.OUTPUT)) {
                 return this.outputStatement();
+            }
+
+            if (this.match(TokenType.DEBUGGER)) {
+                return this.debuggerStatement();
             }
 
             if (this.match(TokenType.RETURN)) {
@@ -810,6 +815,17 @@ export class Parser {
         return {
             type: "Output",
             expressions,
+            line,
+            column,
+        };
+    }
+
+    private debuggerStatement(): DebuggerNode {
+        const line = this.previous().line;
+        const column = this.previous().column;
+        this.consumeNewline();
+        return {
+            type: "Debugger",
             line,
             column,
         };

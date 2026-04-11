@@ -15,6 +15,7 @@ This interpreter provides a complete implementation of the CAIE pseudocode speci
 - **Comprehensive Error Handling**: Detailed error messages with line and column information
 - **Type System**: Robust type checking and conversion between pseudocode and TypeScript types
 - **Portable binary executable**: Compiled to a portable binary for easy distribution and deployment via QuickJS
+- **Built-in Debugger Extension (non-CAIE)**: Supports `DEBUGGER` statement, stepping, and source breakpoints
 
 ## Architecture
 
@@ -105,6 +106,65 @@ interface IOInterface {
 | OOP | `CLASS`, `INHERITS`, `NEW`, methods/properties | ⚠️ Partial | Parser support is broader than runtime behavior |
 | Pointers | Pointer type semantics | ❌ Not supported | Decl syntax in guide not yet implemented |
 | Constants | `CONSTANT` statement | ⚠️ Partial | Lexer token exists; full statement semantics pending |
+| Debugging extension | `DEBUGGER`, step controls, source breakpoints | ⚠️ Extension | Not part of official CAIE pseudocode standard |
+
+## Language Extensions
+
+- `DEBUGGER` is an interpreter extension and not an official CAIE pseudocode keyword.
+- Programs that require strict CAIE portability should avoid `DEBUGGER` and rely on standard constructs only.
+
+## Debugger API (Public)
+
+The debugger API is exported from the package entry (`src/index.ts`) via `DebuggerController` and related types.
+
+### Runtime control
+
+- `attachDebugger(controller)` on `Interpreter`
+- `detachDebugger()` on `Interpreter`
+- `getDebuggerController()` on `Interpreter`
+
+### `DebuggerController` methods
+
+- `onEvent(listener)` subscribe to `paused/resumed` events
+- `isPaused()` check current paused state
+- `continue()` resume execution
+- `stepInto()` pause before next statement
+- `stepOver()` step current frame without entering deeper call stack
+
+### Breakpoints
+
+- `setBreakpoints(lines)` replace all line breakpoints
+- `addBreakpoint(line)` add line breakpoint
+- `removeBreakpoint(line)` remove line breakpoint
+- `clearBreakpoints()` clear all line breakpoints
+- `getBreakpoints()` list configured line breakpoints
+- `setConditionalBreakpoint(line, fn)` set function-based condition
+- `setConditionalBreakpointExpression(line, expression)` set string expression condition
+
+### Condition validation and error explanation
+
+- `validateBreakpointConditionExpression(expression)`
+  - returns `{ valid: boolean, error?: string }`
+- `explainBreakpointConditionError(expression)`
+  - returns `null` when valid
+  - returns `{ code, message }` when invalid
+  - error codes include:
+    - `EMPTY_EXPRESSION`
+    - `UNTERMINATED_STRING`
+    - `UNEXPECTED_CHARACTER`
+    - `UNEXPECTED_END`
+    - `MISSING_RIGHT_PAREN`
+    - `EXPECTED_IDENTIFIER_AFTER_DOT`
+    - `EXPECTED_VALUE`
+    - `UNEXPECTED_TRAILING_TOKEN`
+    - `UNKNOWN`
+
+### Events and payloads
+
+- Event type: `DebugEvent`
+  - `paused` with `DebugSnapshot`
+  - `resumed` with `DebugSnapshot`
+- Pause reasons: `debugger-statement`, `step`, `breakpoint`
 
 ### Control Structures
 - **Selection**: IF statements, CASE statements

@@ -14,6 +14,7 @@ import type { ProgramNode } from "./parser/ast-nodes";
 import { PseudocodeError, ErrorHandler } from "./errors";
 import { InterpreterResult, toPseudocodeError } from "./result";
 import { err } from "neverthrow";
+import { DebuggerController } from "./runtime/debugger";
 
 function unescapeString(str: string) {
     const escapes: Record<string, string> = {
@@ -59,6 +60,7 @@ export class Interpreter {
     private options: InterpreterOptions;
     private errorHandler: ErrorHandler;
     private executionSteps: number = 0;
+    private debuggerController?: DebuggerController;
 
     constructor(io: IOInterface, options: InterpreterOptions = {}) {
         this.io = io;
@@ -109,6 +111,7 @@ export class Interpreter {
         const environment = new Environment();
         const context = new ExecutionContext(environment);
         const evaluator = new Evaluator(this.io);
+        evaluator.setDebuggerController(this.debuggerController);
 
         // Override the evaluator's context with our own
         evaluator.context = context;
@@ -232,6 +235,18 @@ export class Interpreter {
      */
     setOptions(options: Partial<InterpreterOptions>): void {
         this.options = { ...this.options, ...options };
+    }
+
+    attachDebugger(controller: DebuggerController): void {
+        this.debuggerController = controller;
+    }
+
+    detachDebugger(): void {
+        this.debuggerController = undefined;
+    }
+
+    getDebuggerController(): DebuggerController | undefined {
+        return this.debuggerController;
     }
 
     /**

@@ -68,6 +68,7 @@ export type {
     InputNode,
     OutputNode,
     ReturnNode,
+    DebuggerNode,
     OpenFileNode,
     CloseFileNode,
     ReadFileNode,
@@ -101,6 +102,21 @@ export { Parser } from "./parser/parser";
 export { Environment, ExecutionContext } from "./runtime/environment";
 export type { RuntimeValue, RoutineInfo, CallFrame } from "./runtime/environment";
 export { Evaluator } from "./runtime/evaluator";
+export { DebuggerController } from "./runtime/debugger";
+export type {
+    DebugEvent,
+    DebugSnapshot,
+    DebugPauseReason,
+    DebugLocation,
+    DebugScope,
+    DebugVariable,
+    DebugFrame,
+    DebugBreakpointCondition,
+    LineBreakpoint,
+    BreakpointConditionValidationResult,
+    BreakpointConditionErrorCode,
+    BreakpointConditionErrorDetails,
+} from "./runtime/debugger";
 
 // Error handling
 export {

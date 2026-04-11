@@ -170,6 +170,13 @@ export interface OutputNode extends StatementNode {
 }
 
 /**
+ * Debugger statement
+ */
+export interface DebuggerNode extends StatementNode {
+    type: "Debugger";
+}
+
+/**
  * Return statement (for functions)
  */
 export interface ReturnNode extends StatementNode {
@@ -428,6 +435,7 @@ export interface ASTVisitor<T> {
     visitCallStatement(node: CallStatementNode): T;
     visitInput(node: InputNode): T;
     visitOutput(node: OutputNode): T;
+    visitDebugger(node: DebuggerNode): T;
     visitReturn(node: ReturnNode): T;
     visitOpenFile(node: OpenFileNode): T;
     visitCloseFile(node: CloseFileNode): T;
@@ -491,6 +499,8 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
                 return this.visitInput(node as InputNode);
             case "Output":
                 return this.visitOutput(node as OutputNode);
+            case "Debugger":
+                return this.visitDebugger(node as DebuggerNode);
             case "Return":
                 return this.visitReturn(node as ReturnNode);
             case "OpenFile":
@@ -563,6 +573,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
     abstract visitCallStatement(node: CallStatementNode): T;
     abstract visitInput(node: InputNode): T;
     abstract visitOutput(node: OutputNode): T;
+    abstract visitDebugger(node: DebuggerNode): T;
     abstract visitReturn(node: ReturnNode): T;
     abstract visitOpenFile(node: OpenFileNode): T;
     abstract visitCloseFile(node: CloseFileNode): T;

@@ -33,6 +33,7 @@ import {
     TypeDeclarationNode,
     SetDeclarationNode,
     ClassDeclarationNode,
+    DebuggerNode,
     BinaryExpressionNode,
     UnaryExpressionNode,
     IdentifierNode,
@@ -78,6 +79,7 @@ type EvaluatableNode =
     | TypeDeclarationNode
     | SetDeclarationNode
     | ClassDeclarationNode
+    | DebuggerNode
     | BinaryExpressionNode
     | UnaryExpressionNode
     | IdentifierNode
@@ -115,6 +117,7 @@ function isEvaluatableNode(node: ASTNode): node is EvaluatableNode {
         case "TypeDeclaration":
         case "SetDeclaration":
         case "ClassDeclaration":
+        case "Debugger":
         case "BinaryExpression":
         case "UnaryExpression":
         case "Identifier":
@@ -228,6 +231,7 @@ import { RuntimeAsyncResult, toRuntimeError } from "../result";
 import { Environment, ExecutionContext, RoutineInfo } from "./environment";
 import { IOInterface } from "../io/io-interface";
 import { VariableAtom, ArrayAtom, UserDefinedAtom, VariableAtomFactory } from "./variable-atoms";
+import { DebuggerController, DebugSnapshot } from "./debugger";
 
 /**
  * Evaluator class for executing AST nodes
@@ -242,6 +246,7 @@ export class Evaluator {
     private userDefinedTypes: Map<string, UserDefinedTypeInfo> = new Map();
     private enumTypes: Map<string, EnumTypeInfo> = new Map();
     private setTypes: Map<string, SetTypeInfo> = new Map();
+    private debuggerController?: DebuggerController;
 
     constructor(io: IOInterface) {
         this.io = io;
@@ -254,6 +259,10 @@ export class Evaluator {
                 this.assignToTargetR(target, value, line, column),
         });
         this.initializeBuiltInRoutines();
+    }
+
+    setDebuggerController(controller?: DebuggerController): void {
+        this.debuggerController = controller;
     }
 
     /**
@@ -273,7 +282,7 @@ export class Evaluator {
 
         for (const statement of node.body) {
             chain = chain.andThen(() =>
-                this.evaluateR(statement).map((value) => {
+                this.executeStatementR(statement).map((value) => {
                     result = value;
                 }),
             );
@@ -438,6 +447,12 @@ export class Evaluator {
                     node.column,
                 );
 
+            case "Debugger":
+                return ResultAsync.fromPromise(
+                    this.evaluateDebugger(node),
+                    (error: unknown) => toRuntimeError(error, node.line, node.column),
+                ).map(() => undefined);
+
             case "BinaryExpression":
                 return ResultAsync.fromPromise(
                     this.evaluateBinaryExpression(node),
@@ -501,6 +516,57 @@ export class Evaluator {
         } catch (error) {
             return errAsync(toRuntimeError(error, line, column));
         }
+    }
+
+    private executeStatementR(statement: StatementNode): RuntimeAsyncResult<unknown> {
+        return this.pauseForStepBeforeStatementR(statement).andThen(() => this.evaluateR(statement));
+    }
+
+    private async executeStatement(statement: StatementNode): Promise<unknown> {
+        const result = await this.executeStatementR(statement);
+        if (result.isErr()) {
+            throw result.error;
+        }
+        return result.value;
+    }
+
+    private pauseForStepBeforeStatementR(statement: StatementNode): RuntimeAsyncResult<void> {
+        if (!this.debuggerController) {
+            return okAsync(undefined);
+        }
+
+        const snapshot = this.buildDebugSnapshot("step", statement.line, statement.column);
+        return ResultAsync.fromPromise(
+            this.debuggerController.maybePause(snapshot),
+            (error: unknown) => toRuntimeError(error, statement.line, statement.column),
+        );
+    }
+
+    private buildDebugSnapshot(
+        reason: "debugger-statement" | "step",
+        line?: number,
+        column?: number,
+    ): DebugSnapshot {
+        return {
+            reason,
+            location: {
+                line,
+                column,
+            },
+            scopes: [
+                {
+                    scopeName: "local",
+                    variables: this.debuggerController
+                        ? this.debuggerController.variablesToDebug(this.environment.getVariables())
+                        : [],
+                },
+            ],
+            callStack: this.context.callStack.map((frame) => ({
+                routineName: frame.routineName,
+                line: frame.returnAddress?.line,
+                column: frame.returnAddress?.column,
+            })),
+        };
     }
 
     /**
@@ -719,7 +785,7 @@ export class Evaluator {
 
         if (this.isTruthy(condition)) {
             for (const statement of node.thenBranch) {
-                await this.evaluate(statement);
+                await this.executeStatement(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -727,7 +793,7 @@ export class Evaluator {
             }
         } else if (node.elseBranch) {
             for (const statement of node.elseBranch) {
-                await this.evaluate(statement);
+                await this.executeStatement(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -764,7 +830,7 @@ export class Evaluator {
                     executed = true;
 
                     for (const statement of caseItem.body) {
-                        await this.evaluate(statement);
+                        await this.executeStatement(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             return;
@@ -780,7 +846,7 @@ export class Evaluator {
                     executed = true;
 
                     for (const statement of caseItem.body) {
-                        await this.evaluate(statement);
+                        await this.executeStatement(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             return;
@@ -801,7 +867,7 @@ export class Evaluator {
         // Execute OTHERWISE case if no other case matched
         if (!executed && node.otherwise) {
             for (const statement of node.otherwise) {
-                await this.evaluate(statement);
+                await this.executeStatement(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -837,7 +903,7 @@ export class Evaluator {
 
             // Execute the loop body
             for (const statement of node.body) {
-                await this.evaluate(statement);
+                await this.executeStatement(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -865,7 +931,7 @@ export class Evaluator {
             }
 
             for (const statement of node.body) {
-                await this.evaluate(statement);
+                await this.executeStatement(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -880,7 +946,7 @@ export class Evaluator {
     private async evaluateRepeat(node: RepeatNode): Promise<void> {
         do {
             for (const statement of node.body) {
-                await this.evaluate(statement);
+                await this.executeStatement(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -1010,6 +1076,16 @@ export class Evaluator {
 
         this.context.setReturnValue(value);
         this.context.shouldReturn = true;
+    }
+
+    private async evaluateDebugger(node: DebuggerNode): Promise<void> {
+        if (!this.debuggerController) {
+            return;
+        }
+
+        const snapshot = this.buildDebugSnapshot("debugger-statement", node.line, node.column);
+
+        await this.debuggerController.pause(snapshot);
     }
 
     private async assignValueToTarget(
@@ -1366,7 +1442,7 @@ export class Evaluator {
                 if (isProcedureDeclarationNode(routineInfo.node)) {
                     const procedureNode = routineInfo.node;
                     for (const statement of procedureNode.body) {
-                        await this.evaluate(statement);
+                        await this.executeStatement(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             break;
@@ -1375,7 +1451,7 @@ export class Evaluator {
                 } else if (isFunctionDeclarationNode(routineInfo.node)) {
                     const functionNode = routineInfo.node;
                     for (const statement of functionNode.body) {
-                        await this.evaluate(statement);
+                        await this.executeStatement(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             break;
