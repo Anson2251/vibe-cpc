@@ -93,6 +93,14 @@ export class RuntimeFileManager {
         this.openFiles.delete(identifier);
     }
 
+    async closeAll(): Promise<string[]> {
+        const identifiers = Array.from(this.openFiles.keys());
+        for (const identifier of identifiers) {
+            await this.close(identifier);
+        }
+        return identifiers;
+    }
+
     readLine(identifier: string): string {
         const state = this.requireTextState(identifier, "READ");
 

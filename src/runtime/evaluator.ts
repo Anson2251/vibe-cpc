@@ -1905,4 +1905,8 @@ export class Evaluator {
             this.globalRoutines.set(name, { ...builtInFunctions[name], name });
         });
     }
+
+    async dispose(): Promise<string[]> {
+        return this.fileManager.closeAll();
+    }
 }

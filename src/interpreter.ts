@@ -61,6 +61,7 @@ export class Interpreter {
     private errorHandler: ErrorHandler;
     private executionSteps: number = 0;
     private debuggerController?: DebuggerController;
+    private currentEvaluator: Evaluator | null = null;
 
     constructor(io: IOInterface, options: InterpreterOptions = {}) {
         this.io = io;
@@ -111,12 +112,26 @@ export class Interpreter {
         const environment = new Environment();
         const context = new ExecutionContext(environment);
         const evaluator = new Evaluator(this.io);
+        this.currentEvaluator = evaluator;
         evaluator.setDebuggerController(this.debuggerController);
 
         // Override the evaluator's context with our own
         evaluator.context = context;
 
-        const evalResult = await evaluator.evaluateProgramR(ast);
+        let evalResult;
+        let autoClosedFiles: string[] = [];
+        try {
+            evalResult = await evaluator.evaluateProgramR(ast);
+        } finally {
+            autoClosedFiles = await evaluator.dispose();
+            this.currentEvaluator = null;
+        }
+
+        if (autoClosedFiles.length > 0) {
+            const quoted = autoClosedFiles.map((file) => `'${file}'`).join(", ");
+            this.io.output(`Warning: Auto-closed file(s) not closed in program: ${quoted}\n`);
+        }
+
         if (evalResult.isErr()) {
             return this.buildErrorResult(evalResult.error, startTime);
         }
@@ -260,9 +275,10 @@ export class Interpreter {
      * Dispose of resources used by the interpreter
      */
     async dispose() {
-        // Clean up any resources
-        if (this.io) {
-            await this.io.dispose();
+        if (this.currentEvaluator) {
+            await this.currentEvaluator.dispose();
+            this.currentEvaluator = null;
         }
+        await this.io.dispose();
     }
 }
