@@ -1,4 +1,4 @@
-import { VariableInfo } from "../types";
+import { type TypeInfo, VariableInfo } from "../types";
 
 export type DebugPauseReason = "debugger-statement" | "step" | "breakpoint";
 
@@ -10,6 +10,7 @@ export interface DebugLocation {
 export interface DebugVariable {
     name: string;
     type: string;
+    typeInfo: TypeInfo;
     value: unknown;
     isConstant: boolean;
 }
@@ -584,6 +585,7 @@ export class DebuggerController {
         return variables.map((variable) => ({
             name: variable.name,
             type: this.typeToString(variable.type),
+            typeInfo: variable.type,
             value: variable.value,
             isConstant: variable.isConstant,
         }));

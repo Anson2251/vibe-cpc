@@ -31,6 +31,15 @@ export {
     type BreakpointConditionErrorDetails,
 } from "./runtime/debugger";
 
+export type {
+    TypeInfo,
+    ArrayTypeInfo,
+    ArrayBoundValue,
+    UserDefinedTypeInfo,
+    EnumTypeInfo,
+    SetTypeInfo,
+} from "./types";
+
 export {
     PseudocodeError,
     SyntaxError,

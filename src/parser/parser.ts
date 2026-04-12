@@ -242,6 +242,16 @@ export class Parser {
         return expression.type === "Literal";
     }
 
+    private isIdentifierExpression(expression: ExpressionNode): expression is IdentifierNode {
+        return expression.type === "Identifier";
+    }
+
+    private isUnaryExpressionNode(
+        expression: ExpressionNode,
+    ): expression is UnaryExpressionNode {
+        return expression.type === "UnaryExpression";
+    }
+
     private isInputTargetNode(
         expression: ExpressionNode,
     ): expression is IdentifierNode | ArrayAccessNode {
@@ -1704,23 +1714,53 @@ export class Parser {
         }
     }
 
+    private integerLiteralValue(expression: ExpressionNode, message: string): number {
+        if (this.isNumberLiteral(expression)) {
+            const literalValue = expression.value;
+            if (typeof literalValue === "number" && Number.isInteger(literalValue)) {
+                return literalValue;
+            }
+        }
+
+        if (
+            this.isUnaryExpressionNode(expression) &&
+            expression.operator === "-" &&
+            this.isNumberLiteral(expression.operand)
+        ) {
+            const literalValue = expression.operand.value;
+            if (typeof literalValue === "number" && Number.isInteger(literalValue)) {
+                return -literalValue;
+            }
+        }
+
+        throw this.error(this.peek(), message);
+    }
+
+    private integerBoundValue(expression: ExpressionNode, message: string): number | string {
+        if (this.isIdentifierExpression(expression)) {
+            return expression.name;
+        }
+
+        return this.integerLiteralValue(expression, message);
+    }
+
     private parseArrayType(): ArrayTypeInfo {
         const bounds: ArrayBound[] = [];
         this.consume(TokenType.LEFT_BRACKET, "Expected '[' for array bounds");
 
         while (!this.check(TokenType.RIGHT_BRACKET)) {
             const lowerExpr = this.expression();
-            const lower = this.numberLiteralValue(
+            const lower = this.integerBoundValue(
                 lowerExpr,
-                "Array bounds must be integer literals",
+                "Array bounds must be integer literals or integer variables",
             );
 
             this.consume(TokenType.COLON, "Expected ':' between array bounds");
 
             const upperExpr = this.expression();
-            const upper = this.numberLiteralValue(
+            const upper = this.integerBoundValue(
                 upperExpr,
-                "Array bounds must be integer literals",
+                "Array bounds must be integer literals or integer variables",
             );
             bounds.push({ lower, upper });
 
@@ -1732,9 +1772,6 @@ export class Parser {
         this.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array bounds");
         this.consume(TokenType.OF, "Expected 'OF' after ARRAY");
         const elementType = this.parseDataType();
-        if (typeof elementType !== "string") {
-            throw this.error(this.peek(), "Array element type must be a primitive type");
-        }
 
         return { elementType, bounds };
     }

@@ -213,6 +213,7 @@ function getRecordField<T>(record: Record<string, T>, fieldName: string): T | un
 import {
     PseudocodeType,
     ArrayTypeInfo,
+    ArrayBound,
     UserDefinedTypeInfo,
     EnumTypeInfo,
     SetTypeInfo,
@@ -1678,16 +1679,16 @@ export class Evaluator {
      */
     private createEmptyArray(arrayType: ArrayTypeInfo): unknown[] {
         if (arrayType.bounds.length === 1) {
-            const bound = arrayType.bounds[0];
+            const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0]));
             const size = bound.upper - bound.lower + 1;
             return Array.from({ length: size }, () =>
-                this.getDefaultValueForType(arrayType.elementType),
+                this.getDefaultValueForFieldType(arrayType.elementType),
             );
         }
 
         // Create multi-dimensional array recursively
         const result: unknown[] = [];
-        const bound = arrayType.bounds[0];
+        const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0]));
         const size = bound.upper - bound.lower + 1;
 
         const subArrayType: ArrayTypeInfo = {
@@ -1702,7 +1703,7 @@ export class Evaluator {
         return result;
     }
 
-    private getDefaultValueForType(type: PseudocodeType): unknown {
+    private getDefaultValueForPrimitiveType(type: PseudocodeType): unknown {
         switch (type) {
             case PseudocodeType.INTEGER:
             case PseudocodeType.REAL:
@@ -1720,7 +1721,7 @@ export class Evaluator {
 
     private getDefaultValueForFieldType(type: TypeInfo): unknown {
         if (typeof type === "string") {
-            return this.getDefaultValueForType(type);
+            return this.getDefaultValueForPrimitiveType(type);
         }
         if ("kind" in type && type.kind === "ENUM") {
             return type.values[0] ?? "";
@@ -1754,8 +1755,8 @@ export class Evaluator {
 
         if ("elementType" in type) {
             return {
-                elementType: type.elementType,
-                bounds: type.bounds,
+                elementType: this.resolveType(type.elementType, line, column, resolving),
+                bounds: type.bounds.map((bound) => this.resolveArrayBound(bound, line, column)),
             };
         }
 
@@ -1802,6 +1803,38 @@ export class Evaluator {
             name: resolved.name,
             fields: resolvedFields,
         };
+    }
+
+    private resolveArrayBound(bound: ArrayBound, line?: number, column?: number): ArrayBound {
+        return {
+            lower: this.resolveArrayBoundValue(bound.lower, line, column),
+            upper: this.resolveArrayBoundValue(bound.upper, line, column),
+        };
+    }
+
+    private numericArrayBound(bound: ArrayBound): { lower: number; upper: number } {
+        if (!Number.isInteger(bound.lower) || !Number.isInteger(bound.upper)) {
+            throw new RuntimeError("Array bounds must resolve to INTEGER values");
+        }
+
+        return { lower: Number(bound.lower), upper: Number(bound.upper) };
+    }
+
+    private resolveArrayBoundValue(value: number | string, line?: number, column?: number): number {
+        if (typeof value === "number") {
+            return value;
+        }
+
+        const resolved = this.environment.get(value);
+        if (typeof resolved !== "number" || !Number.isInteger(resolved)) {
+            throw new RuntimeError(
+                `Array bound variable '${value}' must contain an INTEGER value`,
+                line,
+                column,
+            );
+        }
+
+        return resolved;
     }
 
     /**

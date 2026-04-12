@@ -8,6 +8,7 @@
 import {
     PseudocodeType,
     ArrayTypeInfo,
+    ArrayBound,
     UserDefinedTypeInfo,
     EnumTypeInfo,
     SetTypeInfo,
@@ -388,6 +389,8 @@ export class Environment {
             throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);
         }
 
+        this.assertConcreteArrayBounds(expectedType.bounds);
+
         // Check dimensions
         const expectedDimensions = expectedType.bounds.length;
         const actualDimensions = this.getArrayDimensions(value);
@@ -468,12 +471,12 @@ export class Environment {
      */
     private validateArrayElements(
         array: unknown[],
-        elementType: PseudocodeType,
+        elementType: TypeInfo,
         dimensions: number,
     ): void {
         if (dimensions === 1) {
             for (const element of array) {
-                this.validateSimpleType(element, elementType);
+                this.validateType(element, elementType);
             }
         } else {
             for (const subArray of array) {
@@ -483,6 +486,14 @@ export class Environment {
                     );
                 }
                 this.validateArrayElements(subArray, elementType, dimensions - 1);
+            }
+        }
+    }
+
+    private assertConcreteArrayBounds(bounds: ArrayBound[]): void {
+        for (const bound of bounds) {
+            if (!Number.isInteger(bound.lower) || !Number.isInteger(bound.upper)) {
+                throw new RuntimeError("Array bounds must resolve to INTEGER values before validation");
             }
         }
     }

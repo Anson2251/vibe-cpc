@@ -647,12 +647,17 @@ export class ArrayAtom extends VariableAtom {
         return this._arrayType;
     }
 
-    get elementType(): PseudocodeType {
+    get elementType(): TypeInfo {
         return this._arrayType.elementType;
     }
 
     get bounds(): Array<{ lower: number; upper: number }> {
-        return this._arrayType.bounds;
+        return this._arrayType.bounds.map((bound) => {
+            if (!Number.isInteger(bound.lower) || !Number.isInteger(bound.upper)) {
+                throw new RuntimeError("Array bounds must be resolved before array atom access");
+            }
+            return { lower: Number(bound.lower), upper: Number(bound.upper) };
+        });
     }
 
     validateValue(value: unknown): void {
@@ -751,7 +756,11 @@ export class ArrayAtom extends VariableAtom {
             return;
         }
 
-        const bound = this._arrayType.bounds[dimension];
+        const rawBound = this._arrayType.bounds[dimension];
+        if (!Number.isInteger(rawBound.lower) || !Number.isInteger(rawBound.upper)) {
+            throw new RuntimeError("Array bounds must be resolved before array validation");
+        }
+        const bound = { lower: Number(rawBound.lower), upper: Number(rawBound.upper) };
         if (array.length < bound.lower || array.length > bound.upper) {
             throw new RuntimeError(
                 `Array dimension ${dimension + 1} has ${array.length} elements, expected between ${bound.lower} and ${bound.upper}`,
@@ -776,12 +785,12 @@ export class ArrayAtom extends VariableAtom {
      */
     private validateArrayElements(
         array: unknown[],
-        elementType: PseudocodeType,
+        elementType: TypeInfo,
         dimensions: number,
     ): void {
         if (dimensions === 1) {
             for (const element of array) {
-                this.validateSimpleType(element, elementType);
+                VariableAtomFactory.createAtom(elementType, element);
             }
         } else {
             for (const subArray of array) {

@@ -144,9 +144,11 @@ export class TypeValidator {
  * Array type information
  */
 export interface ArrayTypeInfo {
-    elementType: PseudocodeType;
+    elementType: TypeInfo;
     bounds: ArrayBound[]; // Array of lower:upper bounds for each dimension
 }
+
+export type ArrayBoundValue = number | string;
 
 export interface EnumTypeInfo {
     kind: "ENUM";
@@ -171,8 +173,8 @@ export type TypeInfo =
  * Array bound information for a single dimension
  */
 export interface ArrayBound {
-    lower: number;
-    upper: number;
+    lower: ArrayBoundValue;
+    upper: ArrayBoundValue;
 }
 
 /**
