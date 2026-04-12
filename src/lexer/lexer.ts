@@ -20,7 +20,7 @@ export class Lexer {
     private column: number = 1;
 
     constructor(source: string) {
-        this.source = source.trim();
+        this.source = source;
     }
 
     /**

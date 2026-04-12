@@ -153,8 +153,8 @@ OUTPUT "done"
 `);
 
         expect(result.success).toBe(true);
-        expect(pausedLines[0]).toBe(4);
-        expect(pausedLines[1]).toBe(5);
+        expect(pausedLines[0]).toBe(5);
+        expect(pausedLines[1]).toBe(6);
         expect(io.getOutput().trim()).toBe("in-proc\ndone");
     });
 

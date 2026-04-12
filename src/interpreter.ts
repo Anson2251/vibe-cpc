@@ -88,14 +88,6 @@ export class Interpreter {
         const startTime = Date.now(); // Record the start time for execution metrics
         this.executionSteps = 0; // Reset execution step counter
 
-        // Remove comments and empty lines from the source code
-        sourceCode = sourceCode
-            .trim()
-            .split("\n")
-            .filter((line) => !line.trim().startsWith("//") && !!line.trim()) // Filter out comment lines and empty lines
-            .join("\n")
-            .trim();
-
         const parseResult = this.parseResult(sourceCode);
         if (parseResult.isErr()) {
             return this.buildErrorResult(parseResult.error, startTime);
