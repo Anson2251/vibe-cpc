@@ -223,6 +223,55 @@ describe("Interpreter Integration Tests", () => {
         });
     });
 
+    describe("Array enhancements", () => {
+        test("should support integer variables as array bounds", async () => {
+            const code = `
+        DECLARE n : INTEGER
+        DECLARE i : INTEGER
+        n <- 3
+        DECLARE values : ARRAY[1:n] OF INTEGER
+
+        FOR i <- 1 TO n
+          values[i] <- i * 10
+        NEXT i
+
+        FOR i <- 1 TO n
+          OUTPUT values[i]
+        NEXT i
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["10", "20", "30"]);
+        });
+
+        test("should support arrays of user defined records and chained member access", async () => {
+            const code = `
+        TYPE SeatPos
+          DECLARE Row : INTEGER
+          DECLARE Col : INTEGER
+        ENDTYPE
+
+        DECLARE n : INTEGER
+        DECLARE i : INTEGER
+        DECLARE SeatPoses : ARRAY[1:2] OF SeatPos
+        n <- 2
+
+        FOR i <- 1 TO n
+          SeatPoses[i].Row <- i
+          SeatPoses[i].Col <- i + 10
+        NEXT i
+
+        OUTPUT SeatPoses[1].Row
+        OUTPUT SeatPoses[1].Col
+        OUTPUT SeatPoses[2].Row
+        OUTPUT SeatPoses[2].Col
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["1", "11", "2", "12"]);
+        });
+    });
+
     describe("Control structures", () => {
         test("should execute IF statement", async () => {
             const code = `

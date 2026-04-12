@@ -246,6 +246,10 @@ export class Parser {
         return expression.type === "Identifier";
     }
 
+    private isIdentifierNode(expression: ExpressionNode): expression is IdentifierNode {
+        return expression.type === "Identifier";
+    }
+
     private isUnaryExpressionNode(
         expression: ExpressionNode,
     ): expression is UnaryExpressionNode {
@@ -1505,61 +1509,6 @@ export class Parser {
             const identifierToken = this.previous();
             const name = this.tokenString(identifierToken, "Expected identifier");
 
-            // Check if it's a function call
-            if (this.match(TokenType.LEFT_PAREN)) {
-                const args: ExpressionNode[] = [];
-
-                if (!this.check(TokenType.RIGHT_PAREN)) {
-                    do {
-                        args.push(this.expression());
-                    } while (this.match(TokenType.COMMA));
-                }
-
-                this.consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments");
-
-                const callExpression: CallExpressionNode = {
-                    type: "CallExpression",
-                    name,
-                    arguments: args,
-                    line: this.previous().line,
-                    column: this.previous().column,
-                };
-                return callExpression;
-            }
-
-            // Check if it's an array access
-            if (this.match(TokenType.LEFT_BRACKET)) {
-                const indices: ExpressionNode[] = [];
-
-                do {
-                    indices.push(this.expression());
-                } while (this.match(TokenType.COMMA));
-
-                this.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array indices");
-
-                // Get the identifier token to extract correct line and column info
-                // The identifier token is at current - indices.length - 2
-                const identifierIndex = this.current - indices.length - 2;
-                const identifierToken = this.tokens[identifierIndex];
-                const rightBracketToken = this.previous();
-
-                const identifier: IdentifierNode = {
-                    type: "Identifier",
-                    name,
-                    line: identifierToken.line,
-                    column: identifierToken.column,
-                };
-
-                const arrayAccess: ArrayAccessNode = {
-                    type: "ArrayAccess",
-                    array: identifier,
-                    indices,
-                    line: rightBracketToken.line,
-                    column: rightBracketToken.column,
-                };
-                return arrayAccess;
-            }
-
             const identifierExpression: IdentifierNode = {
                 type: "Identifier",
                 name,
@@ -1568,19 +1517,72 @@ export class Parser {
             };
             let expr: ExpressionNode = identifierExpression;
 
-            while (this.match(TokenType.DOT)) {
-                const fieldToken = this.consume(
-                    TokenType.IDENTIFIER,
-                    "Expected field name after '.'",
-                );
-                const memberExpression: MemberAccessNode = {
-                    type: "MemberAccess",
-                    object: expr,
-                    field: this.tokenString(fieldToken, "Expected field name after '.'"),
-                    line: fieldToken.line,
-                    column: fieldToken.column,
-                };
-                expr = memberExpression;
+            while (true) {
+                if (this.isIdentifierNode(expr) && this.match(TokenType.LEFT_PAREN)) {
+                    const args: ExpressionNode[] = [];
+
+                    if (!this.check(TokenType.RIGHT_PAREN)) {
+                        do {
+                            args.push(this.expression());
+                        } while (this.match(TokenType.COMMA));
+                    }
+
+                    const closingParen = this.consume(
+                        TokenType.RIGHT_PAREN,
+                        "Expected ')' after arguments",
+                    );
+
+                    const callExpression: CallExpressionNode = {
+                        type: "CallExpression",
+                        name: expr.name,
+                        arguments: args,
+                        line: closingParen.line,
+                        column: closingParen.column,
+                    };
+                    expr = callExpression;
+                    continue;
+                }
+
+                if (this.match(TokenType.LEFT_BRACKET)) {
+                    const indices: ExpressionNode[] = [];
+
+                    do {
+                        indices.push(this.expression());
+                    } while (this.match(TokenType.COMMA));
+
+                    const closingBracket = this.consume(
+                        TokenType.RIGHT_BRACKET,
+                        "Expected ']' after array indices",
+                    );
+
+                    const arrayAccess: ArrayAccessNode = {
+                        type: "ArrayAccess",
+                        array: expr,
+                        indices,
+                        line: closingBracket.line,
+                        column: closingBracket.column,
+                    };
+                    expr = arrayAccess;
+                    continue;
+                }
+
+                if (this.match(TokenType.DOT)) {
+                    const fieldToken = this.consume(
+                        TokenType.IDENTIFIER,
+                        "Expected field name after '.'",
+                    );
+                    const memberExpression: MemberAccessNode = {
+                        type: "MemberAccess",
+                        object: expr,
+                        field: this.tokenString(fieldToken, "Expected field name after '.'"),
+                        line: fieldToken.line,
+                        column: fieldToken.column,
+                    };
+                    expr = memberExpression;
+                    continue;
+                }
+
+                break;
             }
 
             return expr;

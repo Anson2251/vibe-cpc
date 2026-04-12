@@ -23,6 +23,8 @@ import {
     CallStatementNode,
     ProcedureDeclarationNode,
     FunctionDeclarationNode,
+    ArrayAccessNode,
+    MemberAccessNode,
 } from "../../src/parser/ast-nodes";
 
 describe("Parser", () => {
@@ -191,6 +193,26 @@ describe("Parser", () => {
 
             const left = expression.left as BinaryExpressionNode;
             expect(left.operator).toBe("+");
+        });
+
+        test("should parse chained array and member access", () => {
+            const code = "SeatPoses[n].Row <- i";
+            const ast = parseCode(code);
+
+            const statement = ast.body[0] as AssignmentNode;
+            const target = statement.target as MemberAccessNode;
+
+            expect(target.type).toBe("MemberAccess");
+            expect(target.field).toBe("Row");
+
+            const arrayAccess = target.object as ArrayAccessNode;
+            expect(arrayAccess.type).toBe("ArrayAccess");
+
+            const arrayTarget = arrayAccess.array as IdentifierNode;
+            expect(arrayTarget.name).toBe("SeatPoses");
+
+            const index = arrayAccess.indices[0] as IdentifierNode;
+            expect(index.name).toBe("n");
         });
     });
 

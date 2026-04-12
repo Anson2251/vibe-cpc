@@ -1,5 +1,4 @@
 // Global test setup
-import "@jest/globals";
 
 // Silence console output during tests unless explicitly testing output
 // const originalConsoleLog = console.log;

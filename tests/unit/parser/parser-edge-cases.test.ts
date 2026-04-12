@@ -45,11 +45,11 @@ ENDIF
         }
     });
 
-    test("returns parse error for non-literal array bounds", () => {
+    test("accepts integer variables as array bounds", () => {
         const result = parse("DECLARE a : ARRAY[1:x] OF INTEGER");
-        expect(result.isErr()).toBe(true);
-        if (result.isErr()) {
-            expect(result.error.message).toContain("Array bounds must be integer literals");
+        expect(result.isOk()).toBe(true);
+        if (result.isOk()) {
+            expect(result.value.body).toHaveLength(1);
         }
     });
 });
