@@ -284,7 +284,7 @@ npm run lint
 
 ## License
 
-This project is licensed under the GPL-3.0 license.
+This project is licensed under the AGPL.
 
 ## Acknowledgments
 
