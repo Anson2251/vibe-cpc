@@ -16,7 +16,7 @@ export interface DebugVariable {
 }
 
 export interface DebugScope {
-    scopeName: "local";
+    scopeName: string;
     variables: DebugVariable[];
 }
 

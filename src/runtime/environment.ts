@@ -516,6 +516,18 @@ export class Environment {
         return variables;
     }
 
+    getDebugScopes(): Scope[] {
+        const scopes: Scope[] = [];
+        let current: Environment | undefined = this;
+
+        while (current) {
+            scopes.push({ variables: current.getVariables() });
+            current = current.parent;
+        }
+
+        return scopes;
+    }
+
     /**
      * Get all routines in the current environment (for debugging)
      */

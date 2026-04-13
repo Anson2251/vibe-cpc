@@ -548,20 +548,20 @@ export class Evaluator {
         line?: number,
         column?: number,
     ): DebugSnapshot {
+        const scopes = this.debuggerController
+            ? this.environment.getDebugScopes().map((scope, index) => ({
+                  scopeName: index === 0 ? "local" : "global",
+                  variables: this.debuggerController!.variablesToDebug(scope.variables),
+              }))
+            : [];
+
         return {
             reason,
             location: {
                 line,
                 column,
             },
-            scopes: [
-                {
-                    scopeName: "local",
-                    variables: this.debuggerController
-                        ? this.debuggerController.variablesToDebug(this.environment.getVariables())
-                        : [],
-                },
-            ],
+            scopes,
             callStack: this.context.callStack.map((frame) => ({
                 routineName: frame.routineName,
                 line: frame.returnAddress?.line,
@@ -1411,16 +1411,15 @@ export class Evaluator {
             routineEnvironment.define(param.name, param.type, arg);
         }
 
-        // Create a new execution context for the routine
+        // Create a new execution context for the routine and carry forward the active stack.
         const routineContext = new ExecutionContext(routineEnvironment);
-
-        // Push call frame
         const returnAddress =
             this.context.currentLine !== undefined && this.context.currentColumn !== undefined
                 ? { line: this.context.currentLine, column: this.context.currentColumn }
                 : undefined;
 
-        this.context.pushCallFrame({
+        routineContext.callStack = [...this.context.callStack];
+        routineContext.pushCallFrame({
             routineName,
             environment: this.environment,
             returnAddress,
@@ -1473,9 +1472,6 @@ export class Evaluator {
             const updatedValue = routineEnvironment.get(binding.parameterName);
             this.environment.assign(binding.callerVariable, updatedValue);
         }
-
-        // Pop call frame
-        this.context.popCallFrame();
 
         return result;
     }

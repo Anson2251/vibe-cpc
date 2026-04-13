@@ -117,8 +117,8 @@ OUTPUT x
 `);
 
         expect(result.success).toBe(true);
-        expect(pausedLines[0]).toBe(3);
-        expect(pausedLines[1]).toBe(4);
+        expect(pausedLines[0]).toBe(4);
+        expect(pausedLines[1]).toBe(5);
         expect(io.getOutput().trim()).toBe("2");
     });
 
@@ -153,8 +153,8 @@ OUTPUT "done"
 `);
 
         expect(result.success).toBe(true);
-        expect(pausedLines[0]).toBe(5);
-        expect(pausedLines[1]).toBe(6);
+        expect(pausedLines[0]).toBe(6);
+        expect(pausedLines[1]).toBe(7);
         expect(io.getOutput().trim()).toBe("in-proc\ndone");
     });
 
@@ -163,7 +163,7 @@ OUTPUT "done"
         const interpreter = new Interpreter(io);
         const controller = new DebuggerController();
         interpreter.attachDebugger(controller);
-        controller.setBreakpoints([3]);
+        controller.setBreakpoints([4]);
 
         const pausedPromise = oncePaused(controller);
         const runPromise = interpreter.execute(`
@@ -177,7 +177,7 @@ OUTPUT x
         expect(pausedEvent.type).toBe("paused");
         if (pausedEvent.type === "paused") {
             expect(pausedEvent.snapshot.reason).toBe("breakpoint");
-            expect(pausedEvent.snapshot.location.line).toBe(3);
+            expect(pausedEvent.snapshot.location.line).toBe(4);
         }
 
         controller.continue();
@@ -192,7 +192,7 @@ OUTPUT x
         const interpreter = new Interpreter(io);
         const controller = new DebuggerController();
         interpreter.attachDebugger(controller);
-        controller.setBreakpoints([3]);
+        controller.setBreakpoints([4]);
 
         let pauseCount = 0;
         controller.onEvent((event) => {
@@ -220,7 +220,7 @@ NEXT i
         const controller = new DebuggerController();
         interpreter.attachDebugger(controller);
 
-        controller.setConditionalBreakpoint(3, (snapshot) => {
+        controller.setConditionalBreakpoint(4, (snapshot) => {
             const localScope = snapshot.scopes[0];
             const variable = localScope?.variables.find((entry) => entry.name === "x");
             return variable?.value === 2;
@@ -252,7 +252,7 @@ NEXT x
         const controller = new DebuggerController();
         interpreter.attachDebugger(controller);
 
-        controller.setConditionalBreakpointExpression(3, "x MOD 2 = 0 AND x >= 4");
+        controller.setConditionalBreakpointExpression(4, "x MOD 2 = 0 AND x >= 4");
 
         let pauseCount = 0;
         controller.onEvent((event) => {
@@ -272,5 +272,72 @@ NEXT x
         expect(result.success).toBe(true);
         expect(pauseCount).toBe(2);
         expect(io.getOutput().trim()).toBe("1\n2\n3\n4\n5\n6");
+    });
+
+    test("recursive calls expose call stack while paused", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const seenDepths: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type !== "paused") {
+                return;
+            }
+
+            if (event.snapshot.reason === "debugger-statement") {
+                seenDepths.push(event.snapshot.callStack.length);
+            }
+            controller.continue();
+        });
+
+        const result = await interpreter.execute(`
+FUNCTION Search(value : INTEGER) RETURNS INTEGER
+  DEBUGGER
+  IF value = 0 THEN
+    RETURN 0
+  ENDIF
+  RETURN Search(value - 1)
+ENDFUNCTION
+
+OUTPUT Search(3)
+`);
+
+        expect(result.success).toBe(true);
+        expect(seenDepths).toEqual([1, 2, 3, 4]);
+    });
+
+    test("paused function shows outer scope variables", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let outerValue: unknown;
+        controller.onEvent((event) => {
+            if (event.type !== "paused") {
+                return;
+            }
+
+            const globalScope = event.snapshot.scopes.find((scope) => scope.scopeName === "global");
+            outerValue = globalScope?.variables.find((variable) => variable.name === "test")?.value;
+            controller.continue();
+        });
+
+        const result = await interpreter.execute(`
+DECLARE test : INTEGER
+test <- 3
+
+FUNCTION ReadOuter() RETURNS INTEGER
+  DEBUGGER
+  RETURN test
+ENDFUNCTION
+
+OUTPUT ReadOuter()
+`);
+
+        expect(result.success).toBe(true);
+        expect(outerValue).toBe(3);
     });
 });
