@@ -2,20 +2,15 @@
 
 A TypeScript interpreter for the CAIE (Cambridge Assessment International Education) pseudocode language, designed to be ES2020 compatible and environment-agnostic.
 
-## Overview
-
-This interpreter provides a complete implementation of the CAIE pseudocode specification, enabling students and educators to execute and test pseudocode programs in various environments including Node.js, browsers, and other ES2020-compatible platforms.
-
-## Key Features (Expected)
+## Features
 
 - **Complete CAIE Specification Support**: Implements all language features from the CAIE pseudocode guide
 - **ES2020 Compatible**: No Node.js dependencies, works in any ES2020 environment
 - **Environment Agnostic**: Runs in Node.js, browsers, and other JavaScript environments
 - **Modular Architecture**: Clean separation of concerns with pluggable components
 - **Comprehensive Error Handling**: Detailed error messages with line and column information
-- **Type System**: Robust type checking and conversion between pseudocode and TypeScript types
-- **Portable binary executable**: Compiled to a portable binary for easy distribution and deployment via QuickJS
-- **Built-in Debugger Extension (non-CAIE)**: Supports `DEBUGGER` statement, stepping, and source breakpoints
+- **Type System**: Robust type checking and conversion
+- **Built-in Debugger Extension**: Supports `DEBUGGER` statement, stepping, and source breakpoints
 
 ## Architecture
 
@@ -40,55 +35,16 @@ The interpreter follows a modular architecture with clear separation of concerns
 
 ## Project Structure
 
-```text
-caie-pseudocode-interpreter/
-├── src/
-│   ├── core/           # Core interfaces and types
-│   ├── lexer/          # Tokenization and lexical analysis
-│   ├── parser/         # AST generation and parsing
-│   ├── runtime/        # Execution engine
-│   ├── types/          # Type system and mappings
-│   ├── io/             # IO interface abstractions
-│   ├── errors/         # Error handling
-│   └── utils/          # Utility functions
-├── tests/              # Test suite
-├── examples/           # Example pseudocode programs
-└── docs/               # Documentation
 ```
-
-## IO Interface
-
-The interpreter uses an abstract IO interface that can be implemented for different environments:
-
-```typescript
-interface IOInterface {
-  // Console operations
-  input(prompt?: string): Promise<string>;
-  output(data: string): void;
-  
-  // File operations
-  readFile(path: string): Promise<string>;
-  writeFile(path: string, data: string): Promise<void>;
-  appendFile(path: string, data: string): Promise<void>;
-  fileExists(path: string): Promise<boolean>;
-  
-  // Random file operations
-  openRandomFile(path: string): Promise<number>;
-  readRecord(fileHandle: number, position: number): Promise<string>;
-  writeRecord(fileHandle: number, position: number, data: string): Promise<void>;
-  closeFile(fileHandle: number): Promise<void>;
-  
-  // Error handling
-  error(message: string, line?: number, column?: number): void;
-}
+src/
+├── cli/              # CLI adapters
+├── errors/           # Error handling
+├── io/               # IO interface abstractions
+├── lexer/            # Tokenization
+├── parser/           # AST generation
+├── runtime/          # Execution engine
+└── types/           # Type definitions
 ```
-
-## Supported Language Features
-
-### Data Types
-- **Primitive Types**: INTEGER, REAL, CHAR, STRING, BOOLEAN, DATE
-- **Composite Types**: Arrays (1D and 2D), Records, Sets
-- **User-defined Types**: Enumerated types, Pointers
 
 ## Syntax Support Matrix
 
@@ -230,66 +186,39 @@ npm run build
 npm test
 ```
 
-### Basic Usage
+## Usage
 
 ```typescript
-import { Interpreter } from './src/interpreter';
-import { NodeIO } from './src/io/node-adapter';
+import { Interpreter } from './src/index';
+import { NodeIO } from './src/io/node-io-impl';
 
-// Create interpreter with Node.js IO
 const io = new NodeIO();
 const interpreter = new Interpreter(io);
 
-// Execute pseudocode
-const pseudocode = `
+const result = interpreter.execute(`
 DECLARE x : INTEGER
 x <- 10
-OUTPUT "The value of x is: ", x
-`;
+OUTPUT "x = ", x
+`);
 
-interpreter.execute(pseudocode);
+console.log(result);
 ```
 
 ## Development
 
-### Building the Project
 ```bash
-npm run build
+pnpm install
+pnpm run build
+pnpm run test
+pnpm run lint
 ```
-
-### Running Tests
-```bash
-npm test
-```
-
-### Linting
-```bash
-npm run lint
-```
-
-## Documentation
-
-- [Architecture Design](./ARCHITECTURE.md)
-- [Architecture Diagrams](./ARCHITECTURE_DIAGRAMS.md)
-- [Implementation Plan](./IMPLEMENTATION_PLAN.md)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
 
 ## License
 
-This project is licensed under the AGPL.
+AGPL
 
 ## Acknowledgments
 
-Based on the Cambridge International AS & A Level Computer Science 9618 pseudocode specification.
-
-This project is an experimental project for vibe coding, and is not intended for production use.
+Based on Cambridge International AS & A Level Computer Science 9618 pseudocode specification.
 
 Cooperated with GLM-4.5 & GPT-5.3-Codex.
