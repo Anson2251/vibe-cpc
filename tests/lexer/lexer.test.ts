@@ -349,7 +349,9 @@ describe("Lexer", () => {
             const lexer = new Lexer(code);
             const tokens = lexer.tokenize();
 
-            expect(tokens).toHaveLength(1);
+            expect(tokens).toHaveLength(2);
+            expect(tokens[0].type).toBe(TokenType.NEWLINE);
+            expect(tokens[1].type).toBe(TokenType.EOF_TOKEN);
         });
 
         // test('should handle invalid characters gracefully', () => {

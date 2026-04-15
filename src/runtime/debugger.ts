@@ -1,4 +1,5 @@
 import { type TypeInfo, VariableInfo } from "../types";
+import { z } from "zod";
 
 export type DebugPauseReason = "debugger-statement" | "step" | "breakpoint";
 
@@ -25,6 +26,8 @@ export interface DebugFrame {
     line?: number;
     column?: number;
 }
+
+export type DebugContext = Record<string, DebugVariable>;
 
 export interface DebugSnapshot {
     reason: DebugPauseReason;
@@ -92,6 +95,10 @@ function snapshotToContext(snapshot: DebugSnapshot): Record<string, unknown> {
     }
     return context;
 }
+
+const TypeNameSchema = z.object({ name: z.string() });
+const TypeKindSchema = z.object({ kind: z.string() });
+const ComparableValueSchema = z.union([z.string(), z.number()]);
 
 function tokenizeConditionExpression(expression: string): ConditionToken[] {
     const tokens: ConditionToken[] = [];
@@ -269,8 +276,8 @@ function compileConditionExpression(expression: string): DebugBreakpointConditio
             const right = parseTerm();
             const prev = left;
             left = (context) => {
-                const l = prev(context) as number | string;
-                const r = right(context) as number | string;
+                const l = ComparableValueSchema.parse(prev(context));
+                const r = ComparableValueSchema.parse(right(context));
                 switch (operator) {
                     case ">":
                         return l > r;
@@ -295,8 +302,8 @@ function compileConditionExpression(expression: string): DebugBreakpointConditio
             const right = parseFactor();
             const prev = left;
             left = (context) => {
-                const l = prev(context) as number;
-                const r = right(context) as number;
+                const l = Number(prev(context));
+                const r = Number(right(context));
                 return operator === "+" ? l + r : l - r;
             };
         }
@@ -332,7 +339,7 @@ function compileConditionExpression(expression: string): DebugBreakpointConditio
     const parseUnary = (): ((context: Record<string, unknown>) => unknown) => {
         if (matchOperator("NOT", "!")) {
             const operand = parseUnary();
-            return (context) => !Boolean(operand(context));
+            return (context) => !operand(context);
         }
         if (matchOperator("-")) {
             const operand = parseUnary();
@@ -381,10 +388,11 @@ function compileConditionExpression(expression: string): DebugBreakpointConditio
             return (context) => {
                 let value: unknown = context[rootName];
                 for (const accessor of accessors) {
-                    if (typeof value !== "object" || value === null) {
+                    const objResult = z.record(z.string(), z.unknown()).safeParse(value);
+                    if (!objResult.success) {
                         return undefined;
                     }
-                    value = (value as Record<string, unknown>)[accessor];
+                    value = objResult.data[accessor];
                 }
                 return value;
             };
@@ -629,6 +637,7 @@ export class DebuggerController {
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private typeToString(type: unknown): string {
         if (typeof type === "string") {
             return type;
@@ -636,19 +645,13 @@ export class DebuggerController {
         if (type === null || type === undefined) {
             return "UNKNOWN";
         }
-        if (typeof type === "object") {
-            if ("name" in (type as Record<string, unknown>)) {
-                const name = (type as Record<string, unknown>).name;
-                if (typeof name === "string") {
-                    return name;
-                }
-            }
-            if ("kind" in (type as Record<string, unknown>)) {
-                const kind = (type as Record<string, unknown>).kind;
-                if (typeof kind === "string") {
-                    return kind;
-                }
-            }
+        const nameResult = TypeNameSchema.safeParse(type);
+        if (nameResult.success) {
+            return nameResult.data.name;
+        }
+        const kindResult = TypeKindSchema.safeParse(type);
+        if (kindResult.success) {
+            return kindResult.data.kind;
         }
         return "COMPLEX";
     }

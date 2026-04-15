@@ -153,7 +153,8 @@ export abstract class VariableAtom {
         if (typeof this.type === "string") {
             typeStr = this.type;
         } else if ("elementType" in this.type) {
-            typeStr = `ARRAY of ${this.type.elementType}`;
+            const elemType = this.type as { elementType: unknown };
+            typeStr = `ARRAY of ${String(elemType.elementType)}`;
         } else if ("name" in this.type) {
             typeStr = this.type.name;
         }

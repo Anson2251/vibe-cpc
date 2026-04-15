@@ -518,6 +518,7 @@ export class Environment {
 
     getDebugScopes(): Scope[] {
         const scopes: Scope[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         let current: Environment | undefined = this;
 
         while (current) {
