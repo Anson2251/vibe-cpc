@@ -150,18 +150,19 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - [x] Project structure creation
 - [x] IO interface design
 - [x] Component architecture planning
-
-### In Progress
 - [x] Core interface implementations
 - [x] Lexer development
 - [x] Parser development
 - [x] Runtime engine development
 
-### Planned
+### In Progress
 - [x] Type system implementation
 - [x] Error handling system
 - [ ] Testing framework
 - [ ] Documentation and examples
+
+### Planned
+- [ ] Portable binary executable
 
 ## Getting Started
 
@@ -173,17 +174,17 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 ### Installation
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd caie-pseudocode-interpreter
+git clone https://github.com/Anson2251/vibe-cpc.git
+cd vibe-cpc
 
 # Install dependencies
-npm install
+pnpm install
 
 # Build the project
-npm run build
+pnpm run build
 
 # Run tests
-npm test
+pnpm test
 ```
 
 ## Usage
