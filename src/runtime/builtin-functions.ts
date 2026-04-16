@@ -145,7 +145,7 @@ export const builtInFunctions: Record<string, Omit<RoutineInfo, "name">> = {
         PseudocodeType.STRING,
         (str, start, length) => {
             const normalizedStr = String(str);
-            const normalizedStart = Number(start);
+            const normalizedStart = Number(start) - 1;
             const normalizedLength = Number(length);
             return normalizedStr.substring(
                 normalizedStart,

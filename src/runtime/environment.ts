@@ -1,43 +1,18 @@
-/**
- * Runtime Environment for CAIE Pseudocode Interpreter
- *
- * This module implements the environment for variable scoping and storage
- * during pseudocode execution.
- */
-
 import {
-    PseudocodeType,
-    ArrayTypeInfo,
-    ArrayBound,
-    UserDefinedTypeInfo,
-    EnumTypeInfo,
-    SetTypeInfo,
     TypeInfo,
     VariableInfo,
-    // ParameterMode,
-    // ParameterInfo,
     RoutineSignature,
 } from "../types";
 import { RuntimeError } from "../errors";
 import { ASTNode } from "../parser/ast-nodes";
 import { VariableAtom, VariableAtomFactory } from "./variable-atoms";
-// import { IOInterface } from '../io/io-interface';
+import { Heap } from "./heap";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Runtime value wrapper
- */
 export interface RuntimeValue {
     value: unknown;
     type: TypeInfo;
 }
 
-/**
- * Execution context for tracking runtime state
- */
 export class ExecutionContext {
     environment: Environment;
     returnValue?: unknown;
@@ -52,121 +27,97 @@ export class ExecutionContext {
         this.callStack = [];
     }
 
-    /**
-     * Check if we should return from the current routine
-     */
     shouldReturnFromRoutine(): boolean {
         return this.shouldReturn;
     }
 
-    /**
-     * Get the return value
-     */
     getReturnValue(): unknown {
         return this.returnValue;
     }
 
-    /**
-     * Set the return value
-     */
     setReturnValue(value: unknown): void {
         this.returnValue = value;
     }
 
-    /**
-     * Reset the return flag
-     */
     resetReturnFlag(): void {
         this.shouldReturn = false;
         this.returnValue = undefined;
     }
 
-    /**
-     * Push a call frame onto the call stack
-     */
     pushCallFrame(frame: CallFrame): void {
         this.callStack.push(frame);
     }
 
-    /**
-     * Pop a call frame from the call stack
-     */
     popCallFrame(): CallFrame | undefined {
         return this.callStack.pop();
     }
 
-    /**
-     * Get the current call frame
-     */
     getCurrentCallFrame(): CallFrame | undefined {
         return this.callStack[this.callStack.length - 1];
     }
 }
 
-/**
- * Call frame for tracking routine calls
- */
 export interface CallFrame {
     routineName: string;
     environment: Environment;
     returnAddress?: { line: number; column: number };
 }
 
-/**
- * Scope information for debugging
- */
 export interface Scope {
     variables: VariableInfo[];
     parent?: Scope;
 }
 
-/**
- * Extended routine information with execution details
- */
 export interface RoutineInfo<
     TArgs extends unknown[] = unknown[],
     TReturn = unknown,
 > extends RoutineSignature {
-    node?: ASTNode; // AST node for the routine
+    node?: ASTNode;
     isBuiltIn?: boolean;
     implementation?: (...args: TArgs) => TReturn;
-    // Override returnType to allow complex types
     returnType?: TypeInfo;
 }
 
-/**
- * Environment class for managing variable scopes and storage
- */
 export class Environment {
     private variables: Map<string, VariableAtom> = new Map();
     private parent?: Environment;
     private routines: Map<string, RoutineSignature> = new Map();
     private fileHandles: Map<string, number> = new Map();
     private nextFileHandle: number = 1;
+    private heap: Heap;
 
-    constructor(parent?: Environment) {
+    constructor(heap: Heap, parent?: Environment) {
+        this.heap = heap;
         this.parent = parent;
     }
 
-    /**
-     * Define a variable in the current environment
-     */
-    define(name: string, type: TypeInfo, value: unknown, isConstant: boolean = false): void {
+    getHeap(): Heap {
+        return this.heap;
+    }
+
+    define(name: string, type: TypeInfo, value: unknown, isConstant: boolean = false, fromHeap: boolean = false): void {
         if (this.variables.has(name)) {
             throw new RuntimeError(`Variable '${name}' already declared in this scope`);
         }
 
-        const atom = VariableAtomFactory.createAtom(type, value, isConstant);
+        const atom = VariableAtomFactory.createAtom(type, value, isConstant, this.heap, fromHeap);
         this.variables.set(name, atom);
     }
 
-    /**
-     * Get the value of a variable
-     */
+    defineByRef(name: string, type: TypeInfo, address: number): void {
+        if (this.variables.has(name)) {
+            throw new RuntimeError(`Variable '${name}' already declared in this scope`);
+        }
+
+        this.heap.incrementRef(address);
+        const atom = new VariableAtom(address, type, false);
+        this.variables.set(name, atom);
+    }
+
     get(name: string): unknown {
         if (this.variables.has(name)) {
             const atom = this.variables.get(name)!;
-            return atom.value;
+            return atom.getValue(this.heap);
         }
 
         if (this.parent !== undefined) {
@@ -176,9 +127,18 @@ export class Environment {
         throw new RuntimeError(`Undefined variable '${name}'`);
     }
 
-    /**
-     * Get the type of a variable
-     */
+    getAtom(name: string): VariableAtom {
+        if (this.variables.has(name)) {
+            return this.variables.get(name)!;
+        }
+
+        if (this.parent !== undefined) {
+            return this.parent.getAtom(name);
+        }
+
+        throw new RuntimeError(`Undefined variable '${name}'`);
+    }
+
     getType(name: string): TypeInfo {
         if (this.variables.has(name)) {
             const atom = this.variables.get(name)!;
@@ -192,9 +152,6 @@ export class Environment {
         throw new RuntimeError(`Undefined variable '${name}'`);
     }
 
-    /**
-     * Check if a variable is defined
-     */
     has(name: string): boolean {
         if (this.variables.has(name)) {
             return true;
@@ -207,9 +164,6 @@ export class Environment {
         return false;
     }
 
-    /**
-     * Assign a value to a variable
-     */
     assign(name: string, value: unknown): void {
         if (this.variables.has(name)) {
             const atom = this.variables.get(name)!;
@@ -218,8 +172,13 @@ export class Environment {
                 throw new RuntimeError(`Cannot assign to constant '${name}'`);
             }
 
-            // Use the atom's built-in validation and assignment
-            atom.value = value;
+            VariableAtomFactory.validateValue(atom.type, value);
+
+            const writeResult = this.heap.write(atom.getAddress(), value, atom.type);
+            if (writeResult.isErr()) {
+                throw writeResult.error;
+            }
+
             return;
         }
 
@@ -231,9 +190,34 @@ export class Environment {
         throw new RuntimeError(`Undefined variable '${name}'`);
     }
 
-    /**
-     * Define a routine (procedure or function)
-     */
+    assignPointer(name: string, sourceAddress: number): void {
+        if (this.variables.has(name)) {
+            const atom = this.variables.get(name)!;
+
+            if (atom.isConstant) {
+                throw new RuntimeError(`Cannot assign to constant '${name}'`);
+            }
+
+            const oldAddress = atom.getAddress();
+            this.heap.incrementRef(sourceAddress);
+            atom.address = sourceAddress;
+
+            const decResult = this.heap.decrementRef(oldAddress);
+            if (decResult.isErr()) {
+                throw decResult.error;
+            }
+
+            return;
+        }
+
+        if (this.parent !== undefined) {
+            this.parent.assignPointer(name, sourceAddress);
+            return;
+        }
+
+        throw new RuntimeError(`Undefined variable '${name}'`);
+    }
+
     defineRoutine(signature: RoutineSignature): void {
         if (this.routines.has(signature.name)) {
             throw new RuntimeError(`Routine '${signature.name}' already declared`);
@@ -242,9 +226,6 @@ export class Environment {
         this.routines.set(signature.name, signature);
     }
 
-    /**
-     * Get a routine signature
-     */
     getRoutine(name: string): RoutineSignature {
         if (this.routines.has(name)) {
             return this.routines.get(name)!;
@@ -257,9 +238,6 @@ export class Environment {
         throw new RuntimeError(`Undefined routine '${name}'`);
     }
 
-    /**
-     * Check if a routine is defined
-     */
     hasRoutine(name: string): boolean {
         if (this.routines.has(name)) {
             return true;
@@ -272,18 +250,12 @@ export class Environment {
         return false;
     }
 
-    /**
-     * Allocate a file handle
-     */
     allocateFileHandle(variableName: string): number {
         const handle = this.nextFileHandle++;
         this.fileHandles.set(variableName, handle);
         return handle;
     }
 
-    /**
-     * Get a file handle
-     */
     getFileHandle(variableName: string): number {
         if (this.fileHandles.has(variableName)) {
             return this.fileHandles.get(variableName)!;
@@ -296,9 +268,6 @@ export class Environment {
         throw new RuntimeError(`Undefined file handle '${variableName}'`);
     }
 
-    /**
-     * Release a file handle
-     */
     releaseFileHandle(variableName: string): void {
         if (this.fileHandles.has(variableName)) {
             this.fileHandles.delete(variableName);
@@ -313,194 +282,10 @@ export class Environment {
         throw new RuntimeError(`Undefined file handle '${variableName}'`);
     }
 
-    /**
-     * Create a new environment with the current one as parent
-     */
     createChild(): Environment {
-        return new Environment(this);
+        return new Environment(this.heap, this);
     }
 
-    /**
-     * Validate that a value matches the expected type
-     */
-    private validateType(value: unknown, expectedType: TypeInfo): void {
-        if (typeof expectedType === "string") {
-            // Simple type
-            this.validateSimpleType(value, expectedType);
-        } else if (this.isEnumType(expectedType)) {
-            this.validateEnumType(value, expectedType);
-        } else if (this.isSetType(expectedType)) {
-            this.validateSetType(value, expectedType);
-        } else if ("elementType" in expectedType) {
-            // Array type
-            this.validateArrayType(value, expectedType);
-        } else if ("fields" in expectedType) {
-            // User-defined type
-            this.validateUserDefinedType(value, expectedType);
-        }
-    }
-
-    /**
-     * Validate a simple type
-     */
-    private validateSimpleType(value: unknown, expectedType: PseudocodeType): void {
-        switch (expectedType) {
-            case PseudocodeType.INTEGER:
-                if (typeof value !== "number" || !Number.isInteger(value)) {
-                    throw new RuntimeError(`Expected INTEGER, got ${typeof value}`);
-                }
-                break;
-            case PseudocodeType.REAL:
-                if (typeof value !== "number") {
-                    throw new RuntimeError(`Expected REAL, got ${typeof value}`);
-                }
-                break;
-            case PseudocodeType.CHAR:
-                if (
-                    typeof value !== "string" ||
-                    (typeof value === "string" && value.length !== 1)
-                ) {
-                    throw new RuntimeError(`Expected CHAR, got ${typeof value}`);
-                }
-                break;
-            case PseudocodeType.STRING:
-                if (typeof value !== "string") {
-                    throw new RuntimeError(`Expected STRING, got ${typeof value}`);
-                }
-                break;
-            case PseudocodeType.BOOLEAN:
-                if (typeof value !== "boolean") {
-                    throw new RuntimeError(`Expected BOOLEAN, got ${typeof value}`);
-                }
-                break;
-            case PseudocodeType.DATE:
-                if (!(value instanceof Date)) {
-                    throw new RuntimeError(`Expected DATE, got ${typeof value}`);
-                }
-                break;
-        }
-    }
-
-    /**
-     * Validate an array type
-     */
-    private validateArrayType(value: unknown, expectedType: ArrayTypeInfo): void {
-        if (!Array.isArray(value)) {
-            throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);
-        }
-
-        this.assertConcreteArrayBounds(expectedType.bounds);
-
-        // Check dimensions
-        const expectedDimensions = expectedType.bounds.length;
-        const actualDimensions = this.getArrayDimensions(value);
-
-        if (expectedDimensions !== actualDimensions) {
-            throw new RuntimeError(
-                `Expected ${expectedDimensions}-dimensional array, got ${actualDimensions}-dimensional array`,
-            );
-        }
-
-        // Check element types recursively
-        this.validateArrayElements(value, expectedType.elementType, expectedDimensions);
-    }
-
-    /**
-     * Validate a user-defined type
-     */
-    private validateUserDefinedType(value: unknown, expectedType: UserDefinedTypeInfo): void {
-        if (!isRecord(value)) {
-            throw new RuntimeError(
-                `Expected user-defined type '${expectedType.name}', got ${typeof value}`,
-            );
-        }
-
-        // Check all fields
-        for (const [fieldName, fieldType] of Object.entries(expectedType.fields)) {
-            if (!(fieldName in value)) {
-                throw new RuntimeError(
-                    `Missing field '${fieldName}' in user-defined type '${expectedType.name}'`,
-                );
-            }
-
-            this.validateType(value[fieldName], fieldType);
-        }
-    }
-
-    private validateEnumType(value: unknown, expectedType: EnumTypeInfo): void {
-        if (typeof value !== "string" || !expectedType.values.includes(value)) {
-            throw new RuntimeError(`Expected enum '${expectedType.name}' value`);
-        }
-    }
-
-    private validateSetType(value: unknown, expectedType: SetTypeInfo): void {
-        if (!(value instanceof Set)) {
-            throw new RuntimeError(`Expected SET '${expectedType.name}', got ${typeof value}`);
-        }
-
-        for (const item of value.values()) {
-            this.validateSimpleType(item, expectedType.elementType);
-        }
-    }
-
-    private isEnumType(type: TypeInfo): type is EnumTypeInfo {
-        return typeof type === "object" && type !== null && "kind" in type && type.kind === "ENUM";
-    }
-
-    private isSetType(type: TypeInfo): type is SetTypeInfo {
-        return typeof type === "object" && type !== null && "kind" in type && type.kind === "SET";
-    }
-
-    /**
-     * Get the dimensions of an array
-     */
-    private getArrayDimensions(array: unknown[]): number {
-        if (array.length === 0) {
-            return 1;
-        }
-
-        if (Array.isArray(array[0])) {
-            return 1 + this.getArrayDimensions(array[0]);
-        }
-
-        return 1;
-    }
-
-    /**
-     * Validate array elements recursively
-     */
-    private validateArrayElements(
-        array: unknown[],
-        elementType: TypeInfo,
-        dimensions: number,
-    ): void {
-        if (dimensions === 1) {
-            for (const element of array) {
-                this.validateType(element, elementType);
-            }
-        } else {
-            for (const subArray of array) {
-                if (!Array.isArray(subArray)) {
-                    throw new RuntimeError(
-                        `Expected ${dimensions}-dimensional array, got fewer dimensions`,
-                    );
-                }
-                this.validateArrayElements(subArray, elementType, dimensions - 1);
-            }
-        }
-    }
-
-    private assertConcreteArrayBounds(bounds: ArrayBound[]): void {
-        for (const bound of bounds) {
-            if (!Number.isInteger(bound.lower) || !Number.isInteger(bound.upper)) {
-                throw new RuntimeError("Array bounds must resolve to INTEGER values before validation");
-            }
-        }
-    }
-
-    /**
-     * Get all variables in the current environment (for debugging)
-     */
     getVariables(): VariableInfo[] {
         const variables: VariableInfo[] = [];
 
@@ -508,7 +293,7 @@ export class Environment {
             variables.push({
                 name,
                 type: atom.type,
-                value: atom.value,
+                value: atom.getValue(this.heap),
                 isConstant: atom.isConstant,
             });
         }
@@ -518,27 +303,21 @@ export class Environment {
 
     getDebugScopes(): Scope[] {
         const scopes: Scope[] = [];
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        let current: Environment | undefined = this;
 
-        while (current) {
-            scopes.push({ variables: current.getVariables() });
-            current = current.parent;
-        }
+        const collectScopes = (env: Environment | undefined): void => {
+            if (!env) return;
+            scopes.push({ variables: env.getVariables() });
+            collectScopes(env.parent);
+        };
 
+        collectScopes(this);
         return scopes;
     }
 
-    /**
-     * Get all routines in the current environment (for debugging)
-     */
     getRoutines(): RoutineSignature[] {
         return Array.from(this.routines.values());
     }
 
-    /**
-     * Define a variable (alias for define)
-     */
     defineVariable(
         name: string,
         type: TypeInfo,
@@ -548,41 +327,32 @@ export class Environment {
         this.define(name, type, value, isConstant);
     }
 
-    /**
-     * Set a variable value (alias for assign)
-     */
     setVariable(name: string, value: unknown): void {
         this.assign(name, value);
     }
 
-    /**
-     * Get a variable value (alias for get)
-     */
     getVariable(name: string): unknown {
         return this.get(name);
     }
 
-    /**
-     * Get a filename from a file handle variable
-     */
     getFilename(handleVariable: string): string {
-        // This is a simplified implementation
-        // In a real implementation, we would store the filename when opening the file
         return `file_${this.getFileHandle(handleVariable)}`;
     }
 
-    /**
-     * Enter a new scope (alias for createChild)
-     */
     enterScope(): Environment {
         return this.createChild();
     }
 
-    /**
-     * Exit the current scope
-     */
     exitScope(): void {
-        // This is a simplified implementation
-        // In a real implementation, we would manage scope stack
+    }
+
+    disposeScope(): void {
+        for (const atom of this.variables.values()) {
+            const decResult = this.heap.decrementRef(atom.getAddress());
+            if (decResult.isErr()) {
+                throw decResult.error;
+            }
+        }
+        this.variables.clear();
     }
 }

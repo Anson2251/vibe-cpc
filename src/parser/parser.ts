@@ -45,6 +45,9 @@ import {
     MemberAccessNode,
     NewExpressionNode,
     SetLiteralNode,
+    PointerDereferenceNode,
+    AddressOfNode,
+    DisposeStatementNode,
     ParameterNode,
 } from "./ast-nodes";
 import {
@@ -52,6 +55,7 @@ import {
     ArrayTypeInfo,
     ArrayBound,
     UserDefinedTypeInfo,
+    PointerTypeInfo,
     ParameterMode,
 } from "../types";
 import { SyntaxError } from "../errors";
@@ -217,6 +221,10 @@ export class Parser {
                 return this.classDeclaration();
             }
 
+            if (this.match(TokenType.DISPOSE)) {
+                return this.disposeStatement();
+            }
+
             // If none of the above, try to parse as an assignment or expression statement
             return this.assignmentOrExpressionStatement();
         } catch (error) {
@@ -356,6 +364,8 @@ export class Parser {
             case TokenType.PUBLIC:
             case TokenType.PRIVATE:
             case TokenType.NEW:
+            case TokenType.DISPOSE:
+            case TokenType.NULL:
             case TokenType.BYVAL:
             case TokenType.BYREF:
             case TokenType.RETURNS:
@@ -404,6 +414,7 @@ export class Parser {
             case TokenType.NOT:
             case TokenType.ASSIGNMENT:
             case TokenType.STRING_CONCAT:
+            case TokenType.CARET:
             case TokenType.LEFT_PAREN:
             case TokenType.RIGHT_PAREN:
             case TokenType.LEFT_BRACKET:
@@ -926,6 +937,19 @@ export class Parser {
         };
     }
 
+    private disposeStatement(): DisposeStatementNode {
+        const line = this.previous().line;
+        const column = this.previous().column;
+        const pointer = this.expression();
+        this.consumeNewline();
+        return {
+            type: "DisposeStatement",
+            pointer,
+            line,
+            column,
+        };
+    }
+
     /**
      * Parse a RETURN statement
      */
@@ -1036,6 +1060,20 @@ export class Parser {
                     name,
                     fields: [],
                     setElementType: elementType,
+                    line,
+                    column,
+                };
+            }
+
+            if (this.check(TokenType.CARET)) {
+                const pointerType = this.parseDataType();
+                this.consumeNewline();
+
+                return {
+                    type: "TypeDeclaration",
+                    name,
+                    fields: [],
+                    pointerType,
                     line,
                     column,
                 };
@@ -1248,7 +1286,7 @@ export class Parser {
         const parameters = this.parseParameters();
         this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
 
-        let returnType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo | undefined;
+        let returnType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo | PointerTypeInfo | undefined;
         if (this.match(TokenType.RETURNS)) {
             returnType = this.parseDataType();
         }
@@ -1512,10 +1550,123 @@ export class Parser {
         return this.primary();
     }
 
-    /**
-     * Parse a primary expression
-     */
+    private parsePostfixExpression(): ExpressionNode {
+        const nameToken = this.consume(TokenType.IDENTIFIER, "Expected variable name");
+        const identifierExpression: IdentifierNode = {
+            type: "Identifier",
+            name: this.tokenString(nameToken, "Expected variable name"),
+            line: nameToken.line,
+            column: nameToken.column,
+        };
+        return this.applyPostfix(identifierExpression);
+    }
+
+    private applyPostfix(expr: ExpressionNode): ExpressionNode {
+        while (true) {
+            if (this.isIdentifierNode(expr) && this.match(TokenType.LEFT_PAREN)) {
+                const args: ExpressionNode[] = [];
+
+                if (!this.check(TokenType.RIGHT_PAREN)) {
+                    do {
+                        args.push(this.expression());
+                    } while (this.match(TokenType.COMMA));
+                }
+
+                const closingParen = this.consume(
+                    TokenType.RIGHT_PAREN,
+                    "Expected ')' after arguments",
+                );
+
+                const callExpression: CallExpressionNode = {
+                    type: "CallExpression",
+                    name: expr.name,
+                    arguments: args,
+                    line: closingParen.line,
+                    column: closingParen.column,
+                };
+                expr = callExpression;
+                continue;
+            }
+
+            if (this.match(TokenType.LEFT_BRACKET)) {
+                const indices: ExpressionNode[] = [];
+
+                do {
+                    indices.push(this.expression());
+                } while (this.match(TokenType.COMMA));
+
+                const closingBracket = this.consume(
+                    TokenType.RIGHT_BRACKET,
+                    "Expected ']' after array indices",
+                );
+
+                const arrayAccess: ArrayAccessNode = {
+                    type: "ArrayAccess",
+                    array: expr,
+                    indices,
+                    line: closingBracket.line,
+                    column: closingBracket.column,
+                };
+                expr = arrayAccess;
+                continue;
+            }
+
+            if (this.match(TokenType.DOT)) {
+                const fieldToken = this.consume(
+                    TokenType.IDENTIFIER,
+                    "Expected field name after '.'",
+                );
+                const memberExpression: MemberAccessNode = {
+                    type: "MemberAccess",
+                    object: expr,
+                    field: this.tokenString(fieldToken, "Expected field name after '.'"),
+                    line: fieldToken.line,
+                    column: fieldToken.column,
+                };
+                expr = memberExpression;
+                continue;
+            }
+
+            if (this.match(TokenType.CARET)) {
+                const deref: PointerDereferenceNode = {
+                    type: "PointerDereference",
+                    pointer: expr,
+                    line: this.previous().line,
+                    column: this.previous().column,
+                };
+                expr = deref;
+                continue;
+            }
+
+            break;
+        }
+
+        return expr;
+    }
+
     private primary(): ExpressionNode {
+        if (this.match(TokenType.NULL)) {
+            const literal: LiteralNode = {
+                type: "Literal",
+                value: 0,
+                dataType: PseudocodeType.INTEGER,
+                line: this.previous().line,
+                column: this.previous().column,
+            };
+            return literal;
+        }
+
+        if (this.match(TokenType.CARET)) {
+            const target = this.parsePostfixExpression();
+            const addressOf: AddressOfNode = {
+                type: "AddressOf",
+                target,
+                line: target.line,
+                column: target.column,
+            };
+            return addressOf;
+        }
+
         if (this.match(TokenType.TRUE)) {
             const literal: LiteralNode = {
                 type: "Literal",
@@ -1596,77 +1747,8 @@ export class Parser {
                 line: identifierToken.line,
                 column: identifierToken.column,
             };
-            let expr: ExpressionNode = identifierExpression;
 
-            while (true) {
-                if (this.isIdentifierNode(expr) && this.match(TokenType.LEFT_PAREN)) {
-                    const args: ExpressionNode[] = [];
-
-                    if (!this.check(TokenType.RIGHT_PAREN)) {
-                        do {
-                            args.push(this.expression());
-                        } while (this.match(TokenType.COMMA));
-                    }
-
-                    const closingParen = this.consume(
-                        TokenType.RIGHT_PAREN,
-                        "Expected ')' after arguments",
-                    );
-
-                    const callExpression: CallExpressionNode = {
-                        type: "CallExpression",
-                        name: expr.name,
-                        arguments: args,
-                        line: closingParen.line,
-                        column: closingParen.column,
-                    };
-                    expr = callExpression;
-                    continue;
-                }
-
-                if (this.match(TokenType.LEFT_BRACKET)) {
-                    const indices: ExpressionNode[] = [];
-
-                    do {
-                        indices.push(this.expression());
-                    } while (this.match(TokenType.COMMA));
-
-                    const closingBracket = this.consume(
-                        TokenType.RIGHT_BRACKET,
-                        "Expected ']' after array indices",
-                    );
-
-                    const arrayAccess: ArrayAccessNode = {
-                        type: "ArrayAccess",
-                        array: expr,
-                        indices,
-                        line: closingBracket.line,
-                        column: closingBracket.column,
-                    };
-                    expr = arrayAccess;
-                    continue;
-                }
-
-                if (this.match(TokenType.DOT)) {
-                    const fieldToken = this.consume(
-                        TokenType.IDENTIFIER,
-                        "Expected field name after '.'",
-                    );
-                    const memberExpression: MemberAccessNode = {
-                        type: "MemberAccess",
-                        object: expr,
-                        field: this.tokenString(fieldToken, "Expected field name after '.'"),
-                        line: fieldToken.line,
-                        column: fieldToken.column,
-                    };
-                    expr = memberExpression;
-                    continue;
-                }
-
-                break;
-            }
-
-            return expr;
+            return this.applyPostfix(identifierExpression);
         }
 
         if (this.match(TokenType.LEFT_PAREN)) {
@@ -1753,9 +1835,23 @@ export class Parser {
     /**
      * Parse a data type
      */
-    private parseDataType(): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo {
+    private parseDataType(): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo | PointerTypeInfo {
         if (this.match(TokenType.ARRAY)) {
             return this.parseArrayType();
+        }
+
+        if (this.match(TokenType.CARET)) {
+            const pointedType = this.parseDataType();
+            const pointedName = typeof pointedType === "string"
+                ? pointedType
+                : "fields" in pointedType || "kind" in pointedType
+                    ? (pointedType as { name: string }).name
+                    : "UNKNOWN";
+            return {
+                kind: "POINTER",
+                name: `^${pointedName}`,
+                pointedType,
+            };
         }
 
         if (this.match(TokenType.IDENTIFIER)) {

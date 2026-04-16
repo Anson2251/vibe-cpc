@@ -43,6 +43,7 @@ export type {
     VariableInfo,
     ParameterInfo,
     RoutineSignature,
+    PointerTypeInfo,
 } from "./types";
 
 // Lexer
@@ -107,6 +108,8 @@ export { Parser } from "./parser/parser";
 export { Environment, ExecutionContext } from "./runtime/environment";
 export type { RuntimeValue, RoutineInfo, CallFrame } from "./runtime/environment";
 export { Evaluator } from "./runtime/evaluator";
+export { Heap, NULL_POINTER } from "./runtime/heap";
+export type { HeapObject, HeapResult } from "./runtime/heap";
 export { DebuggerController } from "./runtime/debugger";
 export type {
     DebugEvent,

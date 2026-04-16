@@ -162,12 +162,19 @@ export interface SetTypeInfo {
     elementType: PseudocodeType;
 }
 
+export interface PointerTypeInfo {
+    kind: "POINTER";
+    name: string;
+    pointedType: TypeInfo;
+}
+
 export type TypeInfo =
     | PseudocodeType
     | ArrayTypeInfo
     | UserDefinedTypeInfo
     | EnumTypeInfo
-    | SetTypeInfo;
+    | SetTypeInfo
+    | PointerTypeInfo;
 
 /**
  * Array bound information for a single dimension

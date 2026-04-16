@@ -67,6 +67,9 @@ export class Lexer {
             case ".":
                 this.addToken(TokenType.DOT);
                 break;
+            case "^":
+                this.addToken(TokenType.CARET);
+                break;
 
             // One or two character tokens
             case "+":

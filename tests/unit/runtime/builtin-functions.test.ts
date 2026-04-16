@@ -39,7 +39,26 @@ describe("builtInFunctions", () => {
         const fn = builtInFunctions.MID.implementation;
         expect(fn).toBeDefined();
 
-        expect(fn!("abcdef", 2, 3)).toBe("cde");
-        expect(fn!("abcdef", 5, 10)).toBe("f");
+        expect(fn!("abcdef", 2, 3)).toBe("bcd");
+        expect(fn!("abcdef", 5, 10)).toBe("ef");
+    });
+
+    test("MID uses 1-based indexing per CAIE spec", () => {
+        const fn = builtInFunctions.MID.implementation;
+        expect(fn).toBeDefined();
+
+        expect(fn!("ABCDEFGH", 2, 3)).toBe("BCD");
+        expect(fn!("ABCDEFGH", 1, 1)).toBe("A");
+        expect(fn!("ABCDEFGH", 8, 1)).toBe("H");
+        expect(fn!("ABCDEFGH", 1, 8)).toBe("ABCDEFGH");
+    });
+
+    test("MID handles edge cases", () => {
+        const fn = builtInFunctions.MID.implementation;
+        expect(fn).toBeDefined();
+
+        expect(fn!("abc", 1, 0)).toBe("");
+        expect(fn!("abc", 4, 1)).toBe("");
+        expect(fn!("abc", 3, 10)).toBe("c");
     });
 });

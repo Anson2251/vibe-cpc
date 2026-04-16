@@ -177,6 +177,14 @@ export interface DebuggerNode extends StatementNode {
 }
 
 /**
+ * Dispose statement (free pointer memory)
+ */
+export interface DisposeStatementNode extends StatementNode {
+    type: "DisposeStatement";
+    pointer: ExpressionNode;
+}
+
+/**
  * Return statement (for functions)
  */
 export interface ReturnNode extends StatementNode {
@@ -255,6 +263,7 @@ export interface TypeDeclarationNode extends StatementNode {
     fields: FieldDeclarationNode[];
     enumValues?: string[];
     setElementType?: PseudocodeType;
+    pointerType?: TypeInfo;
 }
 
 export interface SetDeclarationNode extends StatementNode {
@@ -387,6 +396,22 @@ export interface SetLiteralNode extends ExpressionNode {
     elements: ExpressionNode[];
 }
 
+/**
+ * Pointer dereference expression (e.g., p^)
+ */
+export interface PointerDereferenceNode extends ExpressionNode {
+    type: "PointerDereference";
+    pointer: ExpressionNode;
+}
+
+/**
+ * Address-of expression (e.g., ^x)
+ */
+export interface AddressOfNode extends ExpressionNode {
+    type: "AddressOf";
+    target: ExpressionNode;
+}
+
 // Helper node types
 
 /**
@@ -436,6 +461,7 @@ export interface ASTVisitor<T> {
     visitInput(node: InputNode): T;
     visitOutput(node: OutputNode): T;
     visitDebugger(node: DebuggerNode): T;
+    visitDisposeStatement(node: DisposeStatementNode): T;
     visitReturn(node: ReturnNode): T;
     visitOpenFile(node: OpenFileNode): T;
     visitCloseFile(node: CloseFileNode): T;
@@ -459,6 +485,8 @@ export interface ASTVisitor<T> {
     visitNewExpression(node: NewExpressionNode): T;
     visitTypeCast(node: TypeCastNode): T;
     visitSetLiteral(node: SetLiteralNode): T;
+    visitPointerDereference(node: PointerDereferenceNode): T;
+    visitAddressOf(node: AddressOfNode): T;
     visitParameter(node: ParameterNode): T;
     visitArrayType(node: ArrayTypeNode): T;
     visitEOF(node: EOFNode): T;
@@ -501,6 +529,8 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
                 return this.visitOutput(node as OutputNode);
             case "Debugger":
                 return this.visitDebugger(node as DebuggerNode);
+            case "DisposeStatement":
+                return this.visitDisposeStatement(node as DisposeStatementNode);
             case "Return":
                 return this.visitReturn(node as ReturnNode);
             case "OpenFile":
@@ -547,6 +577,10 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
                 return this.visitTypeCast(node as TypeCastNode);
             case "SetLiteral":
                 return this.visitSetLiteral(node as SetLiteralNode);
+            case "PointerDereference":
+                return this.visitPointerDereference(node as PointerDereferenceNode);
+            case "AddressOf":
+                return this.visitAddressOf(node as AddressOfNode);
             case "Parameter":
                 return this.visitParameter(node as ParameterNode);
             case "ArrayType":
@@ -574,6 +608,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
     abstract visitInput(node: InputNode): T;
     abstract visitOutput(node: OutputNode): T;
     abstract visitDebugger(node: DebuggerNode): T;
+    abstract visitDisposeStatement(node: DisposeStatementNode): T;
     abstract visitReturn(node: ReturnNode): T;
     abstract visitOpenFile(node: OpenFileNode): T;
     abstract visitCloseFile(node: CloseFileNode): T;
@@ -597,6 +632,8 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
     abstract visitNewExpression(node: NewExpressionNode): T;
     abstract visitTypeCast(node: TypeCastNode): T;
     abstract visitSetLiteral(node: SetLiteralNode): T;
+    abstract visitPointerDereference(node: PointerDereferenceNode): T;
+    abstract visitAddressOf(node: AddressOfNode): T;
     abstract visitParameter(node: ParameterNode): T;
     abstract visitArrayType(node: ArrayTypeNode): T;
     abstract visitEOF(node: EOFNode): T;

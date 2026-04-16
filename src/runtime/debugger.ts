@@ -34,6 +34,7 @@ export interface DebugSnapshot {
     location: DebugLocation;
     scopes: DebugScope[];
     callStack: DebugFrame[];
+    heapSnapshot?: Map<number, { value: unknown; type: TypeInfo; refCount: number }>;
 }
 
 export type DebugBreakpointCondition = (snapshot: DebugSnapshot) => boolean;
@@ -597,6 +598,34 @@ export class DebuggerController {
             value: variable.value,
             isConstant: variable.isConstant,
         }));
+    }
+
+    variablesToDebugWithHeap(variables: VariableInfo[], heapSnapshot: Map<number, { value: unknown; type: TypeInfo; refCount: number }>): DebugVariable[] {
+        return variables.map((variable) => {
+            let displayValue = variable.value;
+
+            if (
+                typeof variable.type === "object" &&
+                variable.type !== null &&
+                "kind" in variable.type &&
+                variable.type.kind === "POINTER" &&
+                typeof variable.value === "number" &&
+                variable.value !== 0
+            ) {
+                const heapObj = heapSnapshot.get(variable.value);
+                if (heapObj) {
+                    displayValue = { address: variable.value, dereferenced: heapObj.value };
+                }
+            }
+
+            return {
+                name: variable.name,
+                type: this.typeToString(variable.type),
+                typeInfo: variable.type,
+                value: displayValue,
+                isConstant: variable.isConstant,
+            };
+        });
     }
 
     private emit(event: DebugEvent): void {

@@ -42,6 +42,8 @@ export enum TokenType {
     PUBLIC = "PUBLIC",
     PRIVATE = "PRIVATE",
     NEW = "NEW",
+    DISPOSE = "DISPOSE",
+    NULL = "NULL",
     BYVAL = "BYVAL",
     BYREF = "BYREF",
     RETURNS = "RETURNS",
@@ -98,6 +100,7 @@ export enum TokenType {
     NOT = "NOT",
     ASSIGNMENT = "ASSIGNMENT",
     STRING_CONCAT = "STRING_CONCAT",
+    CARET = "CARET",
 
     // Delimiters
     LEFT_PAREN = "LEFT_PAREN",
@@ -151,6 +154,8 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
     PUBLIC: TokenType.PUBLIC,
     PRIVATE: TokenType.PRIVATE,
     NEW: TokenType.NEW,
+    DISPOSE: TokenType.DISPOSE,
+    NULL: TokenType.NULL,
     BYVAL: TokenType.BYVAL,
     BYREF: TokenType.BYREF,
     RETURNS: TokenType.RETURNS,

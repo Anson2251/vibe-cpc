@@ -8,7 +8,6 @@
 import { Lexer } from "./lexer/lexer";
 import { Parser } from "./parser/parser";
 import { Evaluator } from "./runtime/evaluator";
-import { Environment, ExecutionContext } from "./runtime/environment";
 import type { IOInterface } from "./io/io-interface";
 import type { ProgramNode } from "./parser/ast-nodes";
 import { PseudocodeError, ErrorHandler } from "./errors";
@@ -100,15 +99,9 @@ export class Interpreter {
             this.io.output("Evaluating...\n");
         }
 
-        // Set up execution environment
-        const environment = new Environment();
-        const context = new ExecutionContext(environment);
         const evaluator = new Evaluator(this.io);
         this.currentEvaluator = evaluator;
         evaluator.setDebuggerController(this.debuggerController);
-
-        // Override the evaluator's context with our own
-        evaluator.context = context;
 
         let evalResult;
         let autoClosedFiles: string[] = [];
