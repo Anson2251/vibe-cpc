@@ -210,6 +210,7 @@ export class VariableAtomFactory {
             if (typeof value !== "number" && value !== null) {
                 throw new RuntimeError(`Expected POINTER, got ${typeof value}`);
             }
+        } else if ("kind" in type && type.kind === "INFERRED") {
         } else if ("elementType" in type) {
             if (!Array.isArray(value)) {
                 throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);

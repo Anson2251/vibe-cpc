@@ -583,12 +583,39 @@ export class Evaluator {
     }
 
     private async evaluateDeclareStatement(node: DeclareStatementNode): Promise<void> {
-        const resolvedType = this.resolveType(node.dataType, node.line, node.column);
         const initialValue = node.initialValue
             ? await this.evaluate(node.initialValue)
-            : this.getDefaultValue(resolvedType);
+            : undefined;
 
-        this.environment.define(node.name, resolvedType, initialValue, node.isConstant);
+        let resolvedType: TypeInfo;
+        if (typeof node.dataType === "object" && "kind" in node.dataType && node.dataType.kind === "INFERRED") {
+            if (initialValue === undefined) {
+                throw new RuntimeError("Cannot infer type for constant without initial value", node.line, node.column);
+            }
+            resolvedType = this.inferTypeFromValue(initialValue);
+        } else {
+            resolvedType = this.resolveType(node.dataType, node.line, node.column);
+        }
+
+        const finalValue = initialValue ?? this.getDefaultValue(resolvedType);
+
+        this.environment.define(node.name, resolvedType, finalValue, node.isConstant);
+    }
+
+    private inferTypeFromValue(value: unknown): TypeInfo {
+        if (typeof value === "number") {
+            return Number.isInteger(value) ? PseudocodeType.INTEGER : PseudocodeType.REAL;
+        }
+        if (typeof value === "string") {
+            return value.length === 1 ? PseudocodeType.CHAR : PseudocodeType.STRING;
+        }
+        if (typeof value === "boolean") {
+            return PseudocodeType.BOOLEAN;
+        }
+        if (value instanceof Date) {
+            return PseudocodeType.DATE;
+        }
+        return PseudocodeType.STRING;
     }
 
     private buildDefaultUserDefinedValue(
@@ -1744,6 +1771,9 @@ export class Evaluator {
         }
         if ("kind" in type && type.kind === "POINTER") {
             return NULL_POINTER;
+        }
+        if ("kind" in type && type.kind === "INFERRED") {
+            return 0;
         }
         if ("fields" in type) {
             const result: Record<string, unknown> = {};

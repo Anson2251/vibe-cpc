@@ -133,6 +133,10 @@ export class Parser {
                 return this.declareStatement();
             }
 
+            if (this.match(TokenType.CONSTANT)) {
+                return this.constantStatement();
+            }
+
             if (this.match(TokenType.IF)) {
                 return this.ifStatement();
             }
@@ -487,6 +491,30 @@ export class Parser {
             dataType,
             isConstant: false,
             initialValue: undefined,
+            line,
+            column,
+        };
+    }
+
+    private constantStatement(): DeclareStatementNode {
+        const line = this.previous().line;
+        const column = this.previous().column;
+
+        const nameToken = this.consume(TokenType.IDENTIFIER, "Expected constant name");
+        const name = this.tokenString(nameToken, "Expected constant name to be text");
+
+        this.consume(TokenType.EQUAL, "Expected '=' after constant name");
+
+        const value = this.expression();
+
+        this.consumeNewline();
+
+        return {
+            type: "DeclareStatement",
+            name,
+            dataType: { kind: "INFERRED" },
+            isConstant: true,
+            initialValue: value,
             line,
             column,
         };

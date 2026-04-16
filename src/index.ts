@@ -44,6 +44,7 @@ export type {
     ParameterInfo,
     RoutineSignature,
     PointerTypeInfo,
+    InferredTypeInfo,
 } from "./types";
 
 // Lexer

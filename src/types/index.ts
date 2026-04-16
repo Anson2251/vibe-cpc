@@ -168,13 +168,18 @@ export interface PointerTypeInfo {
     pointedType: TypeInfo;
 }
 
+export interface InferredTypeInfo {
+    kind: "INFERRED";
+}
+
 export type TypeInfo =
     | PseudocodeType
     | ArrayTypeInfo
     | UserDefinedTypeInfo
     | EnumTypeInfo
     | SetTypeInfo
-    | PointerTypeInfo;
+    | PointerTypeInfo
+    | InferredTypeInfo;
 
 /**
  * Array bound information for a single dimension

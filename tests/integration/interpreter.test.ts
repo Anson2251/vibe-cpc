@@ -1477,4 +1477,99 @@ describe("Interpreter Integration Tests", () => {
             expectOutput(result, ["10", "20"]);
         });
     });
+
+    describe("CONSTANT declarations", () => {
+        test("should declare and use an integer constant", async () => {
+            const code = `
+        CONSTANT MaxValue = 100
+        DECLARE x : INTEGER
+        x <- MaxValue
+        OUTPUT x
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "100");
+        });
+
+        test("should declare and use a real constant", async () => {
+            const code = `
+        CONSTANT HourlyRate = 6.50
+        DECLARE pay : REAL
+        pay <- HourlyRate * 8
+        OUTPUT pay
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "52");
+        });
+
+        test("should declare and use a string constant", async () => {
+            const code = `
+        CONSTANT DefaultText = "N/A"
+        OUTPUT DefaultText
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "N/A");
+        });
+
+        test("should declare and use a boolean constant", async () => {
+            const code = `
+        CONSTANT Enabled = TRUE
+        IF Enabled THEN
+            OUTPUT "yes"
+        ENDIF
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "yes");
+        });
+
+        test("should prevent reassignment of a constant", async () => {
+            const code = `
+        CONSTANT Pi = 3
+        Pi <- 4
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result);
+        });
+
+        test("should use constant in expressions", async () => {
+            const code = `
+        CONSTANT Pi = 3
+        DECLARE r : INTEGER
+        DECLARE area : INTEGER
+        r <- 5
+        area <- Pi * r * r
+        OUTPUT area
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "75");
+        });
+
+        test("should infer CHAR type from single-character string", async () => {
+            const code = `
+        CONSTANT Separator = ","
+        OUTPUT Separator
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ",");
+        });
+
+        test("should allow multiple constants", async () => {
+            const code = `
+        CONSTANT Width = 10
+        CONSTANT Height = 5
+        DECLARE area : INTEGER
+        area <- Width * Height
+        OUTPUT area
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "50");
+        });
+    });
 });
