@@ -290,10 +290,10 @@ pnpm test:coverage
 
 ### Building a Standalone Binary (Linux/MacOS)
 
-With QuickJS installed (`qjsc` in PATH), you can compile the interpreter into a standalone executable:
+The build script automatically downloads and compiles QuickJS from source — no system installation needed:
 
 ```bash
-# Requires: qjsc, gcc, libquickjs-dev
+# Requires: gcc, make, curl or wget
 pnpm run build:binary
 
 # Run the binary
