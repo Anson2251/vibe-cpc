@@ -1,8 +1,4 @@
-import {
-    TypeInfo,
-    VariableInfo,
-    RoutineSignature,
-} from "../types";
+import { TypeInfo, VariableInfo, RoutineSignature } from "../types";
 import { RuntimeError } from "../errors";
 import { ASTNode } from "../parser/ast-nodes";
 import { VariableAtom, VariableAtomFactory } from "./variable-atoms";
@@ -95,7 +91,13 @@ export class Environment {
         return this.heap;
     }
 
-    define(name: string, type: TypeInfo, value: unknown, isConstant: boolean = false, fromHeap: boolean = false): void {
+    define(
+        name: string,
+        type: TypeInfo,
+        value: unknown,
+        isConstant: boolean = false,
+        fromHeap: boolean = false,
+    ): void {
         if (this.variables.has(name)) {
             throw new RuntimeError(`Variable '${name}' already declared in this scope`);
         }
@@ -343,8 +345,7 @@ export class Environment {
         return this.createChild();
     }
 
-    exitScope(): void {
-    }
+    exitScope(): void {}
 
     disposeScope(): void {
         for (const atom of this.variables.values()) {

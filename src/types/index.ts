@@ -15,6 +15,7 @@ export enum PseudocodeType {
     STRING = "STRING",
     BOOLEAN = "BOOLEAN",
     DATE = "DATE",
+    ANY = "ANY",
 }
 
 /**
@@ -27,6 +28,7 @@ export const PSEUDOCODE_TO_TYPESCRIPT_MAPPING: Record<PseudocodeType, string> = 
     [PseudocodeType.STRING]: "string",
     [PseudocodeType.BOOLEAN]: "boolean",
     [PseudocodeType.DATE]: "Date",
+    [PseudocodeType.ANY]: "any",
 };
 
 /**
@@ -45,6 +47,8 @@ export class TypeValidator {
      */
     static isCompatible(expectedType: PseudocodeType, actualType: PseudocodeType): boolean {
         if (expectedType === actualType) return true;
+
+        if (expectedType === PseudocodeType.ANY) return true;
 
         // Allow INTEGER to REAL conversion (widening)
         if (expectedType === PseudocodeType.REAL && actualType === PseudocodeType.INTEGER)
@@ -70,7 +74,7 @@ export class TypeValidator {
                 return typeof value === "boolean";
             case PseudocodeType.DATE:
                 return value instanceof Date;
-            default:
+            case PseudocodeType.ANY:
                 return true;
         }
     }
@@ -132,11 +136,36 @@ export class TypeValidator {
                     return new Date(value);
                 }
                 break;
+            case PseudocodeType.ANY:
+                return value;
         }
 
         throw new Error(
             `Cannot convert value '${String(value)}' of type ${typeof value} to ${targetType}`,
         );
+    }
+
+    static typeInfoToName(type: TypeInfo): string {
+        if (typeof type === "string") {
+            return type;
+        }
+        if (typeof type === "object" && type !== null) {
+            if ("elementType" in type && !("kind" in type)) return "ARRAY";
+            if ("fields" in type) return "RECORD";
+            if ("kind" in type) {
+                switch (type.kind) {
+                    case "ENUM":
+                        return "ENUM";
+                    case "SET":
+                        return "SET";
+                    case "POINTER":
+                        return "POINTER";
+                    case "INFERRED":
+                        return "INFERRED";
+                }
+            }
+        }
+        return "UNKNOWN";
     }
 }
 

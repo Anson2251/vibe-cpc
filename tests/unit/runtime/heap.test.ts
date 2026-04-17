@@ -24,7 +24,10 @@ describe("Heap", () => {
 
         test("deep copies values on allocation", () => {
             const arr = [1, 2, 3];
-            const addr = heap.allocate(arr, { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const addr = heap.allocate(arr, {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             arr[0] = 999;
             const obj = heap.read(addr);
             expect(obj.isOk()).toBe(true);
@@ -121,9 +124,15 @@ describe("Heap", () => {
         });
 
         test("deep copies on write", () => {
-            const addr = heap.allocate([1, 2, 3], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const addr = heap.allocate([1, 2, 3], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             const newArr = [10, 20, 30];
-            heap.write(addr, newArr, { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            heap.write(addr, newArr, {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             newArr[0] = 999;
 
             const result = heap.read(addr);
@@ -257,7 +266,10 @@ describe("Heap", () => {
     describe("deep copy", () => {
         test("deep copies arrays", () => {
             const arr = [1, 2, 3];
-            const addr = heap.allocate(arr, { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const addr = heap.allocate(arr, {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             const obj = heap.read(addr);
             expect(obj.isOk()).toBe(true);
             if (obj.isOk()) {
@@ -298,7 +310,11 @@ describe("Heap", () => {
 
         test("deep copies sets", () => {
             const set = new Set([1, 2, 3]);
-            const addr = heap.allocate(set, { kind: "SET", name: "IntSet", elementType: PseudocodeType.INTEGER });
+            const addr = heap.allocate(set, {
+                kind: "SET",
+                name: "IntSet",
+                elementType: PseudocodeType.INTEGER,
+            });
             const obj = heap.read(addr);
             expect(obj.isOk()).toBe(true);
             if (obj.isOk()) {
@@ -312,7 +328,11 @@ describe("Heap", () => {
 
         test("does not deep copy pointer values", () => {
             const ptrValue = 42;
-            const addr = heap.allocate(ptrValue, { kind: "POINTER", name: "^INTEGER", pointedType: PseudocodeType.INTEGER });
+            const addr = heap.allocate(ptrValue, {
+                kind: "POINTER",
+                name: "^INTEGER",
+                pointedType: PseudocodeType.INTEGER,
+            });
             const obj = heap.read(addr);
             expect(obj.isOk()).toBe(true);
             if (obj.isOk()) {
@@ -339,7 +359,10 @@ describe("Heap", () => {
         });
 
         test("snapshot reflects current heap state for arrays", () => {
-            const addr = heap.allocate([1, 2, 3], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const addr = heap.allocate([1, 2, 3], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             const snapshot = heap.getSnapshot();
             const obj = snapshot.get(addr);
             const stored = obj?.value as number[];
@@ -368,7 +391,12 @@ describe("Heap", () => {
 
     describe("fromHeap deep copy", () => {
         test("allocates raw integer array without fromHeap", () => {
-            const addr = heap.allocate([10, 20, 30], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] }, true, false);
+            const addr = heap.allocate(
+                [10, 20, 30],
+                { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] },
+                true,
+                false,
+            );
             const obj = heap.read(addr);
             expect(obj.isOk()).toBe(true);
             if (obj.isOk()) {
@@ -383,13 +411,21 @@ describe("Heap", () => {
         });
 
         test("deep copies array elements as addresses with fromHeap", () => {
-            const srcAddr = heap.allocate([10, 20, 30], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const srcAddr = heap.allocate([10, 20, 30], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
             if (!srcObj.isOk()) return;
 
             const srcValue = srcObj.value.value;
-            const copyAddr = heap.allocate(srcValue, { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] }, true, true);
+            const copyAddr = heap.allocate(
+                srcValue,
+                { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] },
+                true,
+                true,
+            );
             const copyObj = heap.read(copyAddr);
             expect(copyObj.isOk()).toBe(true);
             if (copyObj.isOk()) {
@@ -404,13 +440,21 @@ describe("Heap", () => {
         });
 
         test("fromHeap deep copy produces independent copies", () => {
-            const srcAddr = heap.allocate([10, 20, 30], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const srcAddr = heap.allocate([10, 20, 30], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
             if (!srcObj.isOk()) return;
 
             const srcValue = srcObj.value.value;
-            const copyAddr = heap.allocate(srcValue, { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] }, true, true);
+            const copyAddr = heap.allocate(
+                srcValue,
+                { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] },
+                true,
+                true,
+            );
 
             const copyRead = heap.read(copyAddr);
             expect(copyRead.isOk()).toBe(true);
@@ -429,7 +473,10 @@ describe("Heap", () => {
         });
 
         test("deep copies record fields as addresses with fromHeap", () => {
-            const recordType = { name: "Person", fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER } };
+            const recordType = {
+                name: "Person",
+                fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER },
+            };
             const srcAddr = heap.allocate({ name: "Alice", age: 30 }, recordType);
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
@@ -451,7 +498,10 @@ describe("Heap", () => {
         });
 
         test("fromHeap record deep copy produces independent copies", () => {
-            const recordType = { name: "Person", fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER } };
+            const recordType = {
+                name: "Person",
+                fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER },
+            };
             const srcAddr = heap.allocate({ name: "Alice", age: 30 }, recordType);
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
@@ -480,7 +530,10 @@ describe("Heap", () => {
             const recordType = {
                 name: "Container",
                 fields: {
-                    items: { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 2 }] },
+                    items: {
+                        elementType: PseudocodeType.INTEGER,
+                        bounds: [{ lower: 1, upper: 2 }],
+                    },
                 },
             };
             const srcAddr = heap.allocate({ items: [5, 10] }, recordType);
@@ -508,8 +561,20 @@ describe("Heap", () => {
         });
 
         test("deep copies 2D array with fromHeap", () => {
-            const array2dType = { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 2 }, { lower: 1, upper: 2 }] };
-            const srcAddr = heap.allocate([[1, 2], [3, 4]], array2dType);
+            const array2dType = {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [
+                    { lower: 1, upper: 2 },
+                    { lower: 1, upper: 2 },
+                ],
+            };
+            const srcAddr = heap.allocate(
+                [
+                    [1, 2],
+                    [3, 4],
+                ],
+                array2dType,
+            );
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
             if (!srcObj.isOk()) return;
@@ -542,7 +607,10 @@ describe("Heap", () => {
         });
 
         test("write deep copies array from heap correctly", () => {
-            const arrayType = { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] };
+            const arrayType = {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            };
             const srcAddr = heap.allocate([10, 20, 30], arrayType);
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
@@ -566,7 +634,10 @@ describe("Heap", () => {
         });
 
         test("write deep copy is independent from source", () => {
-            const arrayType = { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] };
+            const arrayType = {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            };
             const srcAddr = heap.allocate([10, 20, 30], arrayType);
             const srcObj = heap.read(srcAddr);
             expect(srcObj.isOk()).toBe(true);
@@ -594,7 +665,10 @@ describe("Heap", () => {
 
     describe("readElementAddress / readFieldAddress", () => {
         test("readElementAddress returns address of array element", () => {
-            const addr = heap.allocate([10, 20, 30], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] });
+            const addr = heap.allocate([10, 20, 30], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            });
             const elemAddrResult = heap.readElementAddress(addr, 2);
             expect(elemAddrResult.isOk()).toBe(true);
             if (elemAddrResult.isOk()) {
@@ -604,13 +678,19 @@ describe("Heap", () => {
         });
 
         test("readElementAddress rejects out-of-bounds index", () => {
-            const addr = heap.allocate([10, 20], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 2 }] });
+            const addr = heap.allocate([10, 20], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 2 }],
+            });
             const result = heap.readElementAddress(addr, 3);
             expect(result.isErr()).toBe(true);
         });
 
         test("readFieldAddress returns address of record field", () => {
-            const recordType = { name: "Person", fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER } };
+            const recordType = {
+                name: "Person",
+                fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER },
+            };
             const addr = heap.allocate({ name: "Bob", age: 25 }, recordType);
             const fieldAddrResult = heap.readFieldAddress(addr, "age");
             expect(fieldAddrResult.isOk()).toBe(true);
@@ -628,7 +708,10 @@ describe("Heap", () => {
         });
 
         test("readElementAddress rejects index 0", () => {
-            const addr = heap.allocate([10], { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 1 }] });
+            const addr = heap.allocate([10], {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 1 }],
+            });
             const result = heap.readElementAddress(addr, 0);
             expect(result.isErr()).toBe(true);
         });

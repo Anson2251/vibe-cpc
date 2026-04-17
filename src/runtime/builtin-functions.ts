@@ -8,7 +8,8 @@ type BuiltInScalarType =
     | PseudocodeType.REAL
     | PseudocodeType.BOOLEAN
     | PseudocodeType.CHAR
-    | PseudocodeType.DATE;
+    | PseudocodeType.DATE
+    | PseudocodeType.ANY;
 
 type BuiltInParameter = {
     name: string;
@@ -21,6 +22,9 @@ function byValue(name: string, type: BuiltInScalarType): BuiltInParameter {
 }
 
 function schemaForType(type: BuiltInScalarType): z.ZodType {
+    if (type === PseudocodeType.ANY) {
+        return z.unknown();
+    }
     switch (type) {
         case PseudocodeType.STRING:
             return z.coerce.string();
@@ -191,6 +195,49 @@ export const builtInFunctions: Record<string, Omit<RoutineInfo, "name">> = {
         ],
         PseudocodeType.DATE,
         (day, month, year) => new Date(Number(year), Number(month) - 1, Number(day)),
+    ),
+    POSITION: defineBuiltIn(
+        [byValue("str", PseudocodeType.STRING), byValue("sub", PseudocodeType.STRING)],
+        PseudocodeType.INTEGER,
+        (str, sub) => {
+            const idx = String(str).indexOf(String(sub));
+            return idx === -1 ? 0 : idx + 1;
+        },
+    ),
+    ROUND: defineBuiltIn(
+        [byValue("x", PseudocodeType.REAL), byValue("dp", PseudocodeType.INTEGER)],
+        PseudocodeType.REAL,
+        (x, dp) => {
+            const factor = Math.pow(10, Number(dp));
+            return Math.round(Number(x) * factor) / factor;
+        },
+    ),
+    ABS: defineBuiltIn([byValue("x", PseudocodeType.REAL)], PseudocodeType.REAL, (x) =>
+        Math.abs(Number(x)),
+    ),
+    SQRT: defineBuiltIn([byValue("x", PseudocodeType.REAL)], PseudocodeType.REAL, (x) => {
+        const val = Number(x);
+        if (val < 0) {
+            throw new Error("SQRT expects a non-negative value");
+        }
+        return Math.sqrt(val);
+    }),
+    REPLACE: defineBuiltIn(
+        [
+            byValue("str", PseudocodeType.STRING),
+            byValue("old", PseudocodeType.STRING),
+            byValue("new", PseudocodeType.STRING),
+        ],
+        PseudocodeType.STRING,
+        (str, old, newStr) => String(str).split(String(old)).join(String(newStr)),
+    ),
+    TRIM: defineBuiltIn([byValue("str", PseudocodeType.STRING)], PseudocodeType.STRING, (str) =>
+        String(str).trim(),
+    ),
+    POWER: defineBuiltIn(
+        [byValue("x", PseudocodeType.REAL), byValue("n", PseudocodeType.REAL)],
+        PseudocodeType.REAL,
+        (x, n) => Math.pow(Number(x), Number(n)),
     ),
     TODAY: defineBuiltIn([], PseudocodeType.DATE, () => new Date()),
 };

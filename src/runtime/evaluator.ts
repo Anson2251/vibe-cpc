@@ -213,6 +213,7 @@ import {
     PointerTypeInfo,
     TypeInfo,
     ParameterMode,
+    TypeValidator,
 } from "../types";
 
 import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
@@ -437,9 +438,8 @@ export class Evaluator {
                 );
 
             case "Debugger":
-                return ResultAsync.fromPromise(
-                    this.evaluateDebugger(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
+                return ResultAsync.fromPromise(this.evaluateDebugger(node), (error: unknown) =>
+                    toRuntimeError(error, node.line, node.column),
                 ).map(() => undefined);
 
             case "BinaryExpression":
@@ -496,9 +496,8 @@ export class Evaluator {
                 );
 
             case "AddressOf":
-                return ResultAsync.fromPromise(
-                    this.evaluateAddressOf(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
+                return ResultAsync.fromPromise(this.evaluateAddressOf(node), (error: unknown) =>
+                    toRuntimeError(error, node.line, node.column),
                 );
 
             case "DisposeStatement":
@@ -529,8 +528,16 @@ export class Evaluator {
         return this.pauseForStepBeforeStatementR(statement).andThen(() =>
             this.evaluateR(statement).orElse((error: RuntimeError) => {
                 if (this.debuggerController && error instanceof RuntimeError) {
-                    const snapshot = this.buildDebugSnapshot("error", error.line ?? statement.line, error.column ?? statement.column);
-                    snapshot.error = { message: error.message, line: error.line, column: error.column };
+                    const snapshot = this.buildDebugSnapshot(
+                        "error",
+                        error.line ?? statement.line,
+                        error.column ?? statement.column,
+                    );
+                    snapshot.error = {
+                        message: error.message,
+                        line: error.line,
+                        column: error.column,
+                    };
                     return ResultAsync.fromPromise(
                         this.debuggerController.maybePause(snapshot),
                         () => error,
@@ -566,16 +573,22 @@ export class Evaluator {
         line?: number,
         column?: number,
     ): DebugSnapshot {
-        const heapSnapshot = new Map<number, { value: unknown; type: TypeInfo; refCount: number }>();
+        const heapSnapshot = new Map<
+            number,
+            { value: unknown; type: TypeInfo; refCount: number }
+        >();
         for (const [addr, obj] of this.heap.getSnapshot().entries()) {
             heapSnapshot.set(addr, { value: obj.value, type: obj.type, refCount: obj.refCount });
         }
 
         const scopes = this.debuggerController
             ? this.environment.getDebugScopes().map((scope, index) => ({
-                scopeName: index === 0 ? "local" : "global",
-                variables: this.debuggerController!.variablesToDebugWithHeap(scope.variables, heapSnapshot),
-            }))
+                  scopeName: index === 0 ? "local" : "global",
+                  variables: this.debuggerController!.variablesToDebugWithHeap(
+                      scope.variables,
+                      heapSnapshot,
+                  ),
+              }))
             : [];
 
         return {
@@ -595,14 +608,20 @@ export class Evaluator {
     }
 
     private async evaluateDeclareStatement(node: DeclareStatementNode): Promise<void> {
-        const initialValue = node.initialValue
-            ? await this.evaluate(node.initialValue)
-            : undefined;
+        const initialValue = node.initialValue ? await this.evaluate(node.initialValue) : undefined;
 
         let resolvedType: TypeInfo;
-        if (typeof node.dataType === "object" && "kind" in node.dataType && node.dataType.kind === "INFERRED") {
+        if (
+            typeof node.dataType === "object" &&
+            "kind" in node.dataType &&
+            node.dataType.kind === "INFERRED"
+        ) {
             if (initialValue === undefined) {
-                throw new RuntimeError("Cannot infer type for constant without initial value", node.line, node.column);
+                throw new RuntimeError(
+                    "Cannot infer type for constant without initial value",
+                    node.line,
+                    node.column,
+                );
             }
             resolvedType = this.inferTypeFromValue(initialValue);
         } else {
@@ -628,6 +647,68 @@ export class Evaluator {
             return PseudocodeType.DATE;
         }
         return PseudocodeType.STRING;
+    }
+
+    private async evaluateTypeof(node: CallExpressionNode): Promise<string> {
+        const argNode = node.arguments[0];
+
+        if (isIdentifierNode(argNode)) {
+            try {
+                const declaredType = this.environment.getType(argNode.name);
+                return TypeValidator.typeInfoToName(declaredType);
+            } catch {
+                const value = await this.evaluate(argNode);
+                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+            }
+        }
+
+        if (isArrayAccessNode(argNode)) {
+            try {
+                const rootAtom = this.resolveArrayRootAtom(argNode);
+                const elementType = this.resolveArrayElementType(
+                    rootAtom.type,
+                    this.countArrayAccessDepth(argNode),
+                );
+                return TypeValidator.typeInfoToName(elementType);
+            } catch {
+                const value = await this.evaluate(argNode);
+                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+            }
+        }
+
+        if (isMemberAccessNode(argNode)) {
+            try {
+                const memberType = this.resolveMemberAccessType(argNode);
+                return TypeValidator.typeInfoToName(memberType);
+            } catch {
+                const value = await this.evaluate(argNode);
+                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+            }
+        }
+
+        const value = await this.evaluate(argNode);
+        return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+    }
+
+    private countArrayAccessDepth(node: ArrayAccessNode): number {
+        let depth = 1;
+        if (isArrayAccessNode(node.array)) {
+            depth += this.countArrayAccessDepth(node.array);
+        }
+        return depth;
+    }
+
+    private resolveMemberAccessType(node: MemberAccessNode): TypeInfo {
+        if (isIdentifierNode(node.object)) {
+            const objType = this.environment.getType(node.object.name);
+            if (typeof objType === "object" && objType !== null && "fields" in objType) {
+                const fieldType = getRecordField(objType.fields, node.field);
+                if (fieldType !== undefined) {
+                    return fieldType;
+                }
+            }
+        }
+        throw new RuntimeError("Cannot resolve member type", node.line, node.column);
     }
 
     private buildDefaultUserDefinedValue(
@@ -682,7 +763,10 @@ export class Evaluator {
                     typeInfo !== null &&
                     "elementType" in typeInfo
                 ) {
-                    elementType = this.resolveArrayElementType(typeInfo, node.target.indices.length);
+                    elementType = this.resolveArrayElementType(
+                        typeInfo,
+                        node.target.indices.length,
+                    );
                 }
             }
 
@@ -722,13 +806,22 @@ export class Evaluator {
                 throw new RuntimeError("Null pointer dereference", node.line, node.column);
             }
             if (typeof ptrValue !== "number") {
-                throw new RuntimeError("Cannot dereference non-pointer value", node.line, node.column);
+                throw new RuntimeError(
+                    "Cannot dereference non-pointer value",
+                    node.line,
+                    node.column,
+                );
             }
 
             let targetType: TypeInfo = PseudocodeType.INTEGER;
             if (isIdentifierNode(node.target.pointer)) {
                 const ptrType = this.environment.getType(node.target.pointer.name);
-                if (typeof ptrType === "object" && ptrType !== null && "kind" in ptrType && ptrType.kind === "POINTER") {
+                if (
+                    typeof ptrType === "object" &&
+                    ptrType !== null &&
+                    "kind" in ptrType &&
+                    ptrType.kind === "POINTER"
+                ) {
                     targetType = ptrType.pointedType;
                 }
             }
@@ -1037,9 +1130,8 @@ export class Evaluator {
         }
 
         if (isArrayAccessNode(target)) {
-            return ResultAsync.fromPromise(
-                this.resolveTargetAddress(target),
-                (error: unknown) => toRuntimeError(error, line, column),
+            return ResultAsync.fromPromise(this.resolveTargetAddress(target), (error: unknown) =>
+                toRuntimeError(error, line, column),
             ).andThen((address) => {
                 try {
                     let elementType: TypeInfo = PseudocodeType.INTEGER;
@@ -1050,7 +1142,10 @@ export class Evaluator {
                             typeInfo !== null &&
                             "elementType" in typeInfo
                         ) {
-                            elementType = this.resolveArrayElementType(typeInfo, target.indices.length);
+                            elementType = this.resolveArrayElementType(
+                                typeInfo,
+                                target.indices.length,
+                            );
                         }
                     }
 
@@ -1086,7 +1181,11 @@ export class Evaluator {
 
         if (node.pointerType) {
             const resolvedPointerType = this.resolveType(node.pointerType);
-            if (typeof resolvedPointerType === "object" && "kind" in resolvedPointerType && resolvedPointerType.kind === "POINTER") {
+            if (
+                typeof resolvedPointerType === "object" &&
+                "kind" in resolvedPointerType &&
+                resolvedPointerType.kind === "POINTER"
+            ) {
                 const pointerType: PointerTypeInfo = {
                     kind: "POINTER",
                     name: node.name,
@@ -1284,6 +1383,10 @@ export class Evaluator {
             return this.fileOperations.evaluateEOFCall(node.arguments, node.line, node.column);
         }
 
+        if (routineName === "TYPEOF") {
+            return this.evaluateTypeof(node);
+        }
+
         if (this.globalRoutines.has(routineName)) {
             const routineInfo = this.globalRoutines.get(routineName)!;
 
@@ -1327,7 +1430,9 @@ export class Evaluator {
                 }
             } else {
                 const arg = await this.evaluate(argNode);
-                const fromHeap = typeof param.type === "object" && param.type !== null &&
+                const fromHeap =
+                    typeof param.type === "object" &&
+                    param.type !== null &&
                     ("elementType" in param.type || "fields" in param.type);
                 routineEnvironment.define(param.name, param.type, arg, false, fromHeap);
             }
@@ -1414,9 +1519,20 @@ export class Evaluator {
             }
             if (isIdentifierNode(expression.array)) {
                 const typeInfo = this.environment.getType(expression.array.name);
-                if (typeof typeInfo === "object" && typeInfo !== null && "elementType" in typeInfo) {
-                    const elementType = this.resolveArrayElementType(typeInfo, expression.indices.length);
-                    if (typeof elementType === "object" && elementType !== null && "fields" in elementType) {
+                if (
+                    typeof typeInfo === "object" &&
+                    typeInfo !== null &&
+                    "elementType" in typeInfo
+                ) {
+                    const elementType = this.resolveArrayElementType(
+                        typeInfo,
+                        expression.indices.length,
+                    );
+                    if (
+                        typeof elementType === "object" &&
+                        elementType !== null &&
+                        "fields" in elementType
+                    ) {
                         return elementType;
                     }
                 }
@@ -1441,7 +1557,12 @@ export class Evaluator {
 
         if (isPointerDereferenceNode(expression)) {
             const pointedType = this.resolvePointedType(expression.pointer);
-            if (pointedType && typeof pointedType === "object" && pointedType !== null && "fields" in pointedType) {
+            if (
+                pointedType &&
+                typeof pointedType === "object" &&
+                pointedType !== null &&
+                "fields" in pointedType
+            ) {
                 return pointedType;
             }
             return undefined;
@@ -1453,7 +1574,12 @@ export class Evaluator {
     private resolvePointedType(pointerExpr: ExpressionNode): TypeInfo | undefined {
         if (isIdentifierNode(pointerExpr)) {
             const ptrType = this.environment.getType(pointerExpr.name);
-            if (typeof ptrType === "object" && ptrType !== null && "kind" in ptrType && ptrType.kind === "POINTER") {
+            if (
+                typeof ptrType === "object" &&
+                ptrType !== null &&
+                "kind" in ptrType &&
+                ptrType.kind === "POINTER"
+            ) {
                 return ptrType.pointedType;
             }
             return undefined;
@@ -1461,7 +1587,12 @@ export class Evaluator {
 
         if (isArrayAccessNode(pointerExpr)) {
             const arrayElementType = this.resolveArrayAccessType(pointerExpr);
-            if (arrayElementType && typeof arrayElementType === "object" && "kind" in arrayElementType && arrayElementType.kind === "POINTER") {
+            if (
+                arrayElementType &&
+                typeof arrayElementType === "object" &&
+                "kind" in arrayElementType &&
+                arrayElementType.kind === "POINTER"
+            ) {
                 return arrayElementType.pointedType;
             }
             return undefined;
@@ -1471,7 +1602,12 @@ export class Evaluator {
             const parentType = this.resolveMemberPathType(pointerExpr.object);
             if (parentType) {
                 const fieldType = parentType.fields[pointerExpr.field];
-                if (fieldType && typeof fieldType === "object" && "kind" in fieldType && fieldType.kind === "POINTER") {
+                if (
+                    fieldType &&
+                    typeof fieldType === "object" &&
+                    "kind" in fieldType &&
+                    fieldType.kind === "POINTER"
+                ) {
                     return fieldType.pointedType;
                 }
             }
@@ -1576,14 +1712,26 @@ export class Evaluator {
                 }
                 const subArray = subArrayResult.value.value;
                 if (!Array.isArray(subArray)) {
-                    throw new RuntimeError("Multi-dimensional array access on non-array", target.line, target.column);
+                    throw new RuntimeError(
+                        "Multi-dimensional array access on non-array",
+                        target.line,
+                        target.column,
+                    );
                 }
                 if (indices[i] < 1 || indices[i] > subArray.length) {
-                    throw new RuntimeError(`Array index out of bounds: ${indices[i]}`, target.line, target.column);
+                    throw new RuntimeError(
+                        `Array index out of bounds: ${indices[i]}`,
+                        target.line,
+                        target.column,
+                    );
                 }
                 const element: unknown = subArray[indices[i] - 1];
                 if (typeof element !== "number") {
-                    throw new RuntimeError("Invalid array element address", target.line, target.column);
+                    throw new RuntimeError(
+                        "Invalid array element address",
+                        target.line,
+                        target.column,
+                    );
                 }
                 currentAddress = element;
             }
@@ -1603,12 +1751,20 @@ export class Evaluator {
         if (isPointerDereferenceNode(target)) {
             const ptrValue = await this.evaluate(target.pointer);
             if (typeof ptrValue !== "number") {
-                throw new RuntimeError("Cannot dereference non-pointer value", target.line, target.column);
+                throw new RuntimeError(
+                    "Cannot dereference non-pointer value",
+                    target.line,
+                    target.column,
+                );
             }
             return ptrValue;
         }
 
-        throw new RuntimeError("Cannot take address of this expression", target.line, target.column);
+        throw new RuntimeError(
+            "Cannot take address of this expression",
+            target.line,
+            target.column,
+        );
     }
 
     private resolveArrayRootAtom(node: ArrayAccessNode): VariableAtom {
@@ -1624,7 +1780,11 @@ export class Evaluator {
     private resolveArrayElementType(arrayType: TypeInfo, indexCount: number): TypeInfo {
         let currentType: TypeInfo = arrayType;
         for (let i = 0; i < indexCount; i++) {
-            if (typeof currentType === "object" && currentType !== null && "elementType" in currentType) {
+            if (
+                typeof currentType === "object" &&
+                currentType !== null &&
+                "elementType" in currentType
+            ) {
                 currentType = currentType.elementType;
             } else {
                 break;
@@ -1727,6 +1887,8 @@ export class Evaluator {
                 return input.toLowerCase() === "true";
             case PseudocodeType.DATE:
                 return new Date(input);
+            case PseudocodeType.ANY:
+                return input;
         }
     }
 
@@ -1768,6 +1930,8 @@ export class Evaluator {
                 return false;
             case PseudocodeType.DATE:
                 return new Date(0);
+            case PseudocodeType.ANY:
+                return null;
         }
     }
 
@@ -1775,19 +1939,19 @@ export class Evaluator {
         if (typeof type === "string") {
             return this.getDefaultValueForPrimitiveType(type);
         }
-        if ("kind" in type && type.kind === "ENUM") {
+        if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
             return type.values[0] ?? "";
         }
-        if ("kind" in type && type.kind === "SET") {
+        if (typeof type === "object" && "kind" in type && type.kind === "SET") {
             return new Set();
         }
-        if ("kind" in type && type.kind === "POINTER") {
+        if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
             return NULL_POINTER;
         }
-        if ("kind" in type && type.kind === "INFERRED") {
+        if (typeof type === "object" && "kind" in type && type.kind === "INFERRED") {
             return 0;
         }
-        if ("fields" in type) {
+        if (typeof type === "object" && "fields" in type) {
             const result: Record<string, unknown> = {};
             for (const [fieldName, fieldType] of Object.entries(type.fields)) {
                 result[fieldName] = this.getDefaultValueForFieldType(fieldType);
@@ -1811,7 +1975,7 @@ export class Evaluator {
             return type;
         }
 
-        if ("kind" in type) {
+        if (typeof type === "object" && "kind" in type) {
             if (type.kind === "POINTER") {
                 return {
                     kind: "POINTER",
@@ -1822,7 +1986,7 @@ export class Evaluator {
             return type;
         }
 
-        if ("elementType" in type) {
+        if (typeof type === "object" && "elementType" in type) {
             return {
                 elementType: this.resolveType(type.elementType, line, column, resolving),
                 bounds: type.bounds.map((bound) => this.resolveArrayBound(bound, line, column)),

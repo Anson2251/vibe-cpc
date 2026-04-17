@@ -1572,4 +1572,122 @@ describe("Interpreter Integration Tests", () => {
             expectOutput(result, "50");
         });
     });
+
+    describe("Extended built-in functions", () => {
+        test("should execute POSITION to find substring", async () => {
+            const code = `
+        DECLARE pos : INTEGER
+        pos <- POSITION("Hello World", "World")
+        OUTPUT pos
+        pos <- POSITION("Hello World", "xyz")
+        OUTPUT pos
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["7", "0"]);
+        });
+
+        test("should execute ROUND, ABS, SQRT, POWER", async () => {
+            const code = `
+        OUTPUT ROUND(3.14159, 2)
+        OUTPUT ABS(-4.7)
+        OUTPUT SQRT(25)
+        OUTPUT POWER(2, 10)
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["3.14", "4.7", "5", "1024"]);
+        });
+
+        test("should execute REPLACE and TRIM", async () => {
+            const code = `
+        OUTPUT REPLACE("aabbcc", "b", "X")
+        OUTPUT TRIM("  hello  ")
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["aaXXcc", "hello"]);
+        });
+
+        test("should reject SQRT of negative number", async () => {
+            const code = `
+        OUTPUT SQRT(-1)
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "non-negative");
+        });
+    });
+
+    describe("TYPEOF function", () => {
+        test("should return type name for each primitive type", async () => {
+            const code = `
+        DECLARE i : INTEGER
+        DECLARE r : REAL
+        DECLARE s : STRING
+        DECLARE c : CHAR
+        DECLARE b : BOOLEAN
+        DECLARE d : DATE
+
+        i <- 42
+        r <- 3.14
+        s <- "hello"
+        c <- 'A'
+        b <- TRUE
+        d <- SETDATE(1, 1, 2024)
+
+        OUTPUT TYPEOF(i)
+        OUTPUT TYPEOF(r)
+        OUTPUT TYPEOF(s)
+        OUTPUT TYPEOF(c)
+        OUTPUT TYPEOF(b)
+        OUTPUT TYPEOF(d)
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["INTEGER", "REAL", "STRING", "CHAR", "BOOLEAN", "DATE"]);
+        });
+
+        test("should return type name for literal values", async () => {
+            const code = `
+        OUTPUT TYPEOF(42)
+        OUTPUT TYPEOF(3.14)
+        OUTPUT TYPEOF("hello")
+        OUTPUT TYPEOF('A')
+        OUTPUT TYPEOF(TRUE)
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["INTEGER", "REAL", "STRING", "CHAR", "BOOLEAN"]);
+        });
+
+        test("should use TYPEOF in conditional logic", async () => {
+            const code = `
+        DECLARE x : INTEGER
+        x <- 42
+        IF TYPEOF(x) = "INTEGER" THEN
+          OUTPUT "x is integer"
+        ELSE
+          OUTPUT "x is not integer"
+        ENDIF
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "x is integer");
+        });
+
+        test("should distinguish INTEGER from REAL via TYPEOF", async () => {
+            const code = `
+        DECLARE i : INTEGER
+        DECLARE r : REAL
+        i <- 5
+        r <- 5.0
+        OUTPUT TYPEOF(i)
+        OUTPUT TYPEOF(r)
+      `;
+
+            const result = await testRunner.runCode(code);
+            expectOutput(result, ["INTEGER", "REAL"]);
+        });
+    });
 });

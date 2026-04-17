@@ -1,7 +1,4 @@
-import {
-    PseudocodeType,
-    TypeInfo,
-} from "../types";
+import { PseudocodeType, TypeInfo } from "../types";
 import { RuntimeError } from "../errors";
 import { Heap, NULL_POINTER } from "./heap";
 
@@ -100,10 +97,20 @@ export class VariableAtom {
     }
 
     private isPointerType(): boolean {
-        return typeof this.type === "object" && this.type !== null && "kind" in this.type && this.type.kind === "POINTER";
+        return (
+            typeof this.type === "object" &&
+            this.type !== null &&
+            "kind" in this.type &&
+            this.type.kind === "POINTER"
+        );
     }
 
-    static create(heap: Heap, type: TypeInfo, value: unknown, isConstant: boolean = false): VariableAtom {
+    static create(
+        heap: Heap,
+        type: TypeInfo,
+        value: unknown,
+        isConstant: boolean = false,
+    ): VariableAtom {
         const address = heap.allocate(value, type, !isConstant);
         return new VariableAtom(address, type, isConstant);
     }
@@ -115,7 +122,13 @@ export class VariableAtom {
 }
 
 export class VariableAtomFactory {
-    static createAtom(type: TypeInfo, value: unknown, isConstant: boolean = false, heap: Heap, fromHeap: boolean = false): VariableAtom {
+    static createAtom(
+        type: TypeInfo,
+        value: unknown,
+        isConstant: boolean = false,
+        heap: Heap,
+        fromHeap: boolean = false,
+    ): VariableAtom {
         const address = heap.allocate(value, type, !isConstant, fromHeap);
         return new VariableAtom(address, type, isConstant);
     }
@@ -134,26 +147,28 @@ export class VariableAtomFactory {
                     return false;
                 case PseudocodeType.DATE:
                     return new Date(0);
+                case PseudocodeType.ANY:
+                    return null;
             }
         }
 
-        if ("kind" in type && type.kind === "ENUM") {
+        if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
             return type.values[0] ?? "";
         }
 
-        if ("kind" in type && type.kind === "SET") {
+        if (typeof type === "object" && "kind" in type && type.kind === "SET") {
             return new Set();
         }
 
-        if ("kind" in type && type.kind === "POINTER") {
+        if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
             return NULL_POINTER;
         }
 
-        if ("elementType" in type) {
+        if (typeof type === "object" && "elementType" in type) {
             return [];
         }
 
-        if ("fields" in type) {
+        if (typeof type === "object" && "fields" in type) {
             const result: Record<string, unknown> = {};
             for (const [fieldName, fieldType] of Object.entries(type.fields)) {
                 result[fieldName] = VariableAtomFactory.getDefaultValue(fieldType);
@@ -179,7 +194,9 @@ export class VariableAtomFactory {
                     break;
                 case PseudocodeType.CHAR:
                     if (typeof value !== "string" || value.length !== 1) {
-                        throw new RuntimeError(`Expected CHAR (single character), got ${typeof value}`);
+                        throw new RuntimeError(
+                            `Expected CHAR (single character), got ${typeof value}`,
+                        );
                     }
                     break;
                 case PseudocodeType.STRING:
@@ -197,37 +214,34 @@ export class VariableAtomFactory {
                         throw new RuntimeError(`Expected DATE, got ${typeof value}`);
                     }
                     break;
+                case PseudocodeType.ANY:
+                    break;
             }
-        } else if ("kind" in type && type.kind === "ENUM") {
+        } else if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
             if (typeof value !== "string" || !type.values.includes(value)) {
                 throw new RuntimeError(`Expected enum '${type.name}' value`);
             }
-        } else if ("kind" in type && type.kind === "SET") {
+        } else if (typeof type === "object" && "kind" in type && type.kind === "SET") {
             if (!(value instanceof Set)) {
                 throw new RuntimeError(`Expected SET '${type.name}'`);
             }
-        } else if ("kind" in type && type.kind === "POINTER") {
+        } else if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
             if (typeof value !== "number" && value !== null) {
                 throw new RuntimeError(`Expected POINTER, got ${typeof value}`);
             }
-        } else if ("kind" in type && type.kind === "INFERRED") {
-        } else if ("elementType" in type) {
+        } else if (typeof type === "object" && "kind" in type && type.kind === "INFERRED") {
+        } else if (typeof type === "object" && "elementType" in type) {
             if (!Array.isArray(value)) {
                 throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);
             }
-        } else if ("fields" in type) {
+        } else if (typeof type === "object" && "fields" in type) {
             if (!isRecord(value)) {
-                throw new RuntimeError(`Expected user-defined type '${type.name}', got ${typeof value}`);
+                throw new RuntimeError(
+                    `Expected user-defined type '${type.name}', got ${typeof value}`,
+                );
             }
         }
     }
 }
 
-export {
-    ensureNumber,
-    ensureString,
-    ensureBoolean,
-    ensureDate,
-    ensureArray,
-    ensureSet,
-};
+export { ensureNumber, ensureString, ensureBoolean, ensureDate, ensureArray, ensureSet };

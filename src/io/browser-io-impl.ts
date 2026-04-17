@@ -46,10 +46,12 @@ export class BrowserIOImpl implements IOInterface {
             throw new Error("BrowserIO requires an inputProvider in browser environment");
         }
         // eslint-disable-next-line typescript-eslint/promise-function-async
-        this.inputProvider = options.inputProvider || ((prompt?: string) => {
-            const result = globalThis.prompt?.(prompt);
-            return Promise.resolve(result || "");
-        }); 
+        this.inputProvider =
+            options.inputProvider ||
+            ((prompt?: string) => {
+                const result = globalThis.prompt?.(prompt);
+                return Promise.resolve(result || "");
+            });
     }
 
     async input(prompt?: string): Promise<string> {
@@ -121,7 +123,7 @@ export class BrowserIOImpl implements IOInterface {
     }
 
     async closeFile(fileHandle: number): Promise<void> {
-        await Promise.resolve();  // avoid the lint complaint
+        await Promise.resolve(); // avoid the lint complaint
         this.randomFileHandles.delete(fileHandle);
     }
 

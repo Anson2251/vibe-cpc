@@ -3,7 +3,9 @@ import { DebuggerController } from "../../../src/runtime/debugger";
 describe("DebuggerController condition expression validation", () => {
     test("accepts valid expression", () => {
         const controller = new DebuggerController();
-        const result = controller.validateBreakpointConditionExpression("x MOD 2 = 0 AND score >= 40");
+        const result = controller.validateBreakpointConditionExpression(
+            "x MOD 2 = 0 AND score >= 40",
+        );
 
         expect(result.valid).toBe(true);
         expect(result.error).toBeUndefined();

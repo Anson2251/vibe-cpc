@@ -1,11 +1,6 @@
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
-import {
-    PseudocodeType,
-    ArrayTypeInfo,
-    UserDefinedTypeInfo,
-    TypeInfo,
-} from "../types";
+import { PseudocodeType, ArrayTypeInfo, UserDefinedTypeInfo, TypeInfo } from "../types";
 import { RuntimeError } from "../errors";
 
 export const NULL_POINTER = 0;
@@ -25,12 +20,14 @@ const TypeInfoSchema = z.custom<TypeInfo>((val) => {
     return false;
 }, "Invalid TypeInfo");
 
-const HeapObjectSchema = z.object({
-    value: z.unknown(),
-    refCount: z.number().int().nonnegative(),
-    isMutable: z.boolean(),
-    type: TypeInfoSchema,
-}).loose();
+const HeapObjectSchema = z
+    .object({
+        value: z.unknown(),
+        refCount: z.number().int().nonnegative(),
+        isMutable: z.boolean(),
+        type: TypeInfoSchema,
+    })
+    .loose();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -43,7 +40,12 @@ export class Heap {
     private freeList: number[] = [];
     private nextAddress: number = 1;
 
-    allocate(value: unknown, type: TypeInfo, isMutable: boolean = true, fromHeap: boolean = false): number {
+    allocate(
+        value: unknown,
+        type: TypeInfo,
+        isMutable: boolean = true,
+        fromHeap: boolean = false,
+    ): number {
         let address: number;
 
         if (this.freeList.length > 0) {
@@ -243,29 +245,29 @@ export class Heap {
             return value;
         }
 
-        if ("kind" in type && type.kind === "ENUM") {
+        if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
             return value;
         }
 
-        if ("kind" in type && type.kind === "SET") {
+        if (typeof type === "object" && "kind" in type && type.kind === "SET") {
             if (value instanceof Set) {
                 return new Set(value);
             }
             return value;
         }
 
-        if ("kind" in type && type.kind === "POINTER") {
+        if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
             return value;
         }
 
-        if ("elementType" in type) {
+        if (typeof type === "object" && "elementType" in type) {
             if (Array.isArray(value)) {
                 return this.deepCopyArray(value, type, fromHeap);
             }
             return value;
         }
 
-        if ("fields" in type) {
+        if (typeof type === "object" && "fields" in type) {
             if (isRecord(value)) {
                 return this.deepCopyRecord(value, type, fromHeap);
             }
@@ -284,7 +286,12 @@ export class Heap {
             return array.map((element) => {
                 if (fromHeap && typeof element === "number" && this.memory.has(element)) {
                     const srcObj = this.memory.get(element)!;
-                    const newAddr = this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
+                    const newAddr = this.allocate(
+                        srcObj.value,
+                        srcObj.type,
+                        srcObj.isMutable,
+                        true,
+                    );
                     return newAddr;
                 }
                 const newAddr = this.allocate(element, subArrayType);
@@ -303,14 +310,23 @@ export class Heap {
         });
     }
 
-    private deepCopyRecord(record: Record<string, unknown>, type: UserDefinedTypeInfo, fromHeap: boolean): Record<string, unknown> {
+    private deepCopyRecord(
+        record: Record<string, unknown>,
+        type: UserDefinedTypeInfo,
+        fromHeap: boolean,
+    ): Record<string, unknown> {
         const copy: Record<string, unknown> = {};
         for (const [fieldName, fieldType] of Object.entries(type.fields)) {
             if (fieldName in record) {
                 const fieldValue = record[fieldName];
                 if (fromHeap && typeof fieldValue === "number" && this.memory.has(fieldValue)) {
                     const srcObj = this.memory.get(fieldValue)!;
-                    const newAddr = this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
+                    const newAddr = this.allocate(
+                        srcObj.value,
+                        srcObj.type,
+                        srcObj.isMutable,
+                        true,
+                    );
                     copy[fieldName] = newAddr;
                 } else {
                     const newAddr = this.allocate(fieldValue, fieldType);
@@ -338,26 +354,28 @@ export class Heap {
                     return false;
                 case PseudocodeType.DATE:
                     return new Date(0);
+                case PseudocodeType.ANY:
+                    return null;
             }
         }
 
-        if ("kind" in type && type.kind === "ENUM") {
+        if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
             return type.values[0] ?? "";
         }
 
-        if ("kind" in type && type.kind === "SET") {
+        if (typeof type === "object" && "kind" in type && type.kind === "SET") {
             return new Set();
         }
 
-        if ("kind" in type && type.kind === "POINTER") {
+        if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
             return NULL_POINTER;
         }
 
-        if ("elementType" in type) {
+        if (typeof type === "object" && "elementType" in type) {
             return [];
         }
 
-        if ("fields" in type) {
+        if (typeof type === "object" && "fields" in type) {
             const result: Record<string, unknown> = {};
             for (const [fieldName, fieldType] of Object.entries(type.fields)) {
                 result[fieldName] = this.getDefaultValue(fieldType);

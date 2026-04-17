@@ -49,7 +49,10 @@ describe("Environment", () => {
         test("defines array from heap-read value with fromHeap=true", () => {
             const heap = new Heap();
             const env = new Environment(heap);
-            const arrayType = { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] };
+            const arrayType = {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            };
 
             env.define("src", arrayType, [10, 20, 30]);
             const srcValue = env.getAtom("src").getAddress();
@@ -77,7 +80,10 @@ describe("Environment", () => {
         test("fromHeap=true produces independent copy of array", () => {
             const heap = new Heap();
             const env = new Environment(heap);
-            const arrayType = { elementType: PseudocodeType.INTEGER, bounds: [{ lower: 1, upper: 3 }] };
+            const arrayType = {
+                elementType: PseudocodeType.INTEGER,
+                bounds: [{ lower: 1, upper: 3 }],
+            };
 
             env.define("src", arrayType, [10, 20, 30]);
             const srcAddr = env.getAtom("src").getAddress();
@@ -101,7 +107,10 @@ describe("Environment", () => {
         test("defines record from heap-read value with fromHeap=true", () => {
             const heap = new Heap();
             const env = new Environment(heap);
-            const recordType = { name: "Person", fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER } };
+            const recordType = {
+                name: "Person",
+                fields: { name: PseudocodeType.STRING, age: PseudocodeType.INTEGER },
+            };
 
             env.define("src", recordType, { name: "Alice", age: 30 });
             const srcAddr = env.getAtom("src").getAddress();

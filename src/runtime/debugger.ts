@@ -551,9 +551,7 @@ export class DebuggerController {
         this.setConditionalBreakpoint(line, compiled);
     }
 
-    validateBreakpointConditionExpression(
-        expression: string,
-    ): BreakpointConditionValidationResult {
+    validateBreakpointConditionExpression(expression: string): BreakpointConditionValidationResult {
         try {
             compileConditionExpression(expression);
             return { valid: true };
@@ -606,9 +604,17 @@ export class DebuggerController {
         }));
     }
 
-    variablesToDebugWithHeap(variables: VariableInfo[], heapSnapshot: Map<number, { value: unknown; type: TypeInfo; refCount: number }>): DebugVariable[] {
+    variablesToDebugWithHeap(
+        variables: VariableInfo[],
+        heapSnapshot: Map<number, { value: unknown; type: TypeInfo; refCount: number }>,
+    ): DebugVariable[] {
         return variables.map((variable) => {
-            const displayValue = this.resolveHeapValue(variable.value, variable.type, heapSnapshot, new Set());
+            const displayValue = this.resolveHeapValue(
+                variable.value,
+                variable.type,
+                heapSnapshot,
+                new Set(),
+            );
 
             return {
                 name: variable.name,
@@ -643,7 +649,13 @@ export class DebuggerController {
                 if (heapObj) {
                     const derefValue = visited.has(value)
                         ? "[Circular]"
-                        : (visited.add(value), this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited));
+                        : (visited.add(value),
+                          this.resolveHeapValue(
+                              heapObj.value,
+                              heapObj.type,
+                              heapSnapshot,
+                              visited,
+                          ));
                     return { address: value, dereferenced: derefValue };
                 }
             }
@@ -667,14 +679,25 @@ export class DebuggerController {
                     if (visited.has(element)) return "[Circular]";
                     visited.add(element);
                     const heapObj = heapSnapshot.get(element)!;
-                    return this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited);
+                    return this.resolveHeapValue(
+                        heapObj.value,
+                        heapObj.type,
+                        heapSnapshot,
+                        visited,
+                    );
                 }
                 // oxlint-disable-next-line typescript-eslint/no-unsafe-return
                 return element;
             });
         }
 
-        if (typeof type === "object" && "fields" in type && typeof value === "object" && value !== null && !Array.isArray(value)) {
+        if (
+            typeof type === "object" &&
+            "fields" in type &&
+            typeof value === "object" &&
+            value !== null &&
+            !Array.isArray(value)
+        ) {
             // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
             const record = value as Record<string, unknown>;
             const resolved: Record<string, unknown> = {};
@@ -687,7 +710,12 @@ export class DebuggerController {
                     }
                     visited.add(fieldValue);
                     const heapObj = heapSnapshot.get(fieldValue)!;
-                    resolved[fieldName] = this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited);
+                    resolved[fieldName] = this.resolveHeapValue(
+                        heapObj.value,
+                        heapObj.type,
+                        heapSnapshot,
+                        visited,
+                    );
                 } else {
                     resolved[fieldName] = fieldValue;
                 }

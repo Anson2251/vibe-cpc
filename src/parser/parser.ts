@@ -262,9 +262,7 @@ export class Parser {
         return expression.type === "Identifier";
     }
 
-    private isUnaryExpressionNode(
-        expression: ExpressionNode,
-    ): expression is UnaryExpressionNode {
+    private isUnaryExpressionNode(expression: ExpressionNode): expression is UnaryExpressionNode {
         return expression.type === "UnaryExpression";
     }
 
@@ -1314,7 +1312,12 @@ export class Parser {
         const parameters = this.parseParameters();
         this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
 
-        let returnType: PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo | PointerTypeInfo | undefined;
+        let returnType:
+            | PseudocodeType
+            | ArrayTypeInfo
+            | UserDefinedTypeInfo
+            | PointerTypeInfo
+            | undefined;
         if (this.match(TokenType.RETURNS)) {
             returnType = this.parseDataType();
         }
@@ -1863,18 +1866,23 @@ export class Parser {
     /**
      * Parse a data type
      */
-    private parseDataType(): PseudocodeType | ArrayTypeInfo | UserDefinedTypeInfo | PointerTypeInfo {
+    private parseDataType():
+        | PseudocodeType
+        | ArrayTypeInfo
+        | UserDefinedTypeInfo
+        | PointerTypeInfo {
         if (this.match(TokenType.ARRAY)) {
             return this.parseArrayType();
         }
 
         if (this.match(TokenType.CARET)) {
             const pointedType = this.parseDataType();
-            const pointedName = typeof pointedType === "string"
-                ? pointedType
-                : "fields" in pointedType || "kind" in pointedType
-                    ? (pointedType as { name: string }).name
-                    : "UNKNOWN";
+            const pointedName =
+                typeof pointedType === "string"
+                    ? pointedType
+                    : "fields" in pointedType || "kind" in pointedType
+                      ? (pointedType as { name: string }).name
+                      : "UNKNOWN";
             return {
                 kind: "POINTER",
                 name: `^${pointedName}`,
