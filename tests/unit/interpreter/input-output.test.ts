@@ -90,52 +90,67 @@ OUTPUT 2 + 3 * 4
 
     describe("INPUT", () => {
         test("INPUT reads a string", async () => {
-            const { result, output } = await execute(`
+            const { result, output } = await execute(
+                `
 DECLARE name : STRING
 INPUT name
 OUTPUT name
-`, ["Alice"]);
+`,
+                ["Alice"],
+            );
             expect(result.success).toBe(true);
             expect(output).toBe("Alice");
         });
 
         test("INPUT reads an integer", async () => {
-            const { result, output } = await execute(`
+            const { result, output } = await execute(
+                `
 DECLARE x : INTEGER
 INPUT x
 OUTPUT x + 1
-`, ["42"]);
+`,
+                ["42"],
+            );
             expect(result.success).toBe(true);
             expect(output).toBe("43");
         });
 
         test("INPUT reads a real number", async () => {
-            const { result, output } = await execute(`
+            const { result, output } = await execute(
+                `
 DECLARE x : REAL
 INPUT x
 OUTPUT x
-`, ["3.14"]);
+`,
+                ["3.14"],
+            );
             expect(result.success).toBe(true);
             expect(output).toBe("3.14");
         });
 
         test("multiple INPUT calls", async () => {
-            const { result, output } = await execute(`
+            const { result, output } = await execute(
+                `
 DECLARE a : INTEGER
 DECLARE b : INTEGER
 INPUT a
 INPUT b
 OUTPUT a + b
-`, ["10", "20"]);
+`,
+                ["10", "20"],
+            );
             expect(result.success).toBe(true);
             expect(output).toBe("30");
         });
 
         test("INPUT rejects wrong type: string to integer", async () => {
-            const { result } = await execute(`
+            const { result } = await execute(
+                `
 DECLARE x : INTEGER
 INPUT x
-`, ["hello"]);
+`,
+                ["hello"],
+            );
             expect(result.success).toBe(false);
         });
     });

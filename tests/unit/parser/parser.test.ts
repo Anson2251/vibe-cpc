@@ -108,7 +108,7 @@ describe("Parser", () => {
 
     describe("Control flow", () => {
         test("parses IF-THEN-ELSE-ENDIF", () => {
-            const ast = parse("IF x > 0 THEN\nOUTPUT \"pos\"\nELSE\nOUTPUT \"neg\"\nENDIF\n");
+            const ast = parse('IF x > 0 THEN\nOUTPUT "pos"\nELSE\nOUTPUT "neg"\nENDIF\n');
             const ifNode = ast.body[0] as any;
             expect(ifNode.type).toBe("If");
             expect(ifNode.thenBranch).toHaveLength(1);
@@ -116,7 +116,7 @@ describe("Parser", () => {
         });
 
         test("parses IF-THEN-ENDIF without ELSE", () => {
-            const ast = parse("IF x > 0 THEN\nOUTPUT \"pos\"\nENDIF\n");
+            const ast = parse('IF x > 0 THEN\nOUTPUT "pos"\nENDIF\n');
             const ifNode = ast.body[0] as any;
             expect(ifNode.thenBranch).toHaveLength(1);
             expect(ifNode.elseBranch).toBeUndefined();
@@ -167,7 +167,7 @@ ENDCASE\n`);
 
     describe("Procedures and functions", () => {
         test("parses procedure without parameters", () => {
-            const ast = parse("PROCEDURE Greet()\nOUTPUT \"hi\"\nENDPROCEDURE\n");
+            const ast = parse('PROCEDURE Greet()\nOUTPUT "hi"\nENDPROCEDURE\n');
             const proc = ast.body[0] as any;
             expect(proc.type).toBe("ProcedureDeclaration");
             expect(proc.name).toBe("Greet");
@@ -181,7 +181,9 @@ ENDCASE\n`);
         });
 
         test("parses function with return type", () => {
-            const ast = parse("FUNCTION Double(x : INTEGER) RETURNS INTEGER\nRETURN x * 2\nENDFUNCTION\n");
+            const ast = parse(
+                "FUNCTION Double(x : INTEGER) RETURNS INTEGER\nRETURN x * 2\nENDFUNCTION\n",
+            );
             const func = ast.body[0] as any;
             expect(func.type).toBe("FunctionDeclaration");
             expect(func.returnType).toBe("INTEGER");
@@ -307,7 +309,9 @@ ENDCLASS\n`);
         });
 
         test("reports missing ENDFUNCTION", () => {
-            expect(parseError("FUNCTION Foo() RETURNS INTEGER\nRETURN 1\n")).toContain("ENDFUNCTION");
+            expect(parseError("FUNCTION Foo() RETURNS INTEGER\nRETURN 1\n")).toContain(
+                "ENDFUNCTION",
+            );
         });
 
         test("reports missing ENDWHILE", () => {

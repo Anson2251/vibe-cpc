@@ -1,28 +1,14 @@
-/**
- * Node.js CLI Adapter for CAIE Pseudocode Interpreter
- *
- * This class implements the CLIInterface for Node.js environments,
- * providing command-line argument parsing and execution capabilities.
- */
-
 import type { CLIInterface, CLIOptions } from "./cli-interface";
 import { Interpreter } from "../interpreter";
 import type { ExecutionResult, AnalyzeResult } from "../interpreter";
-import { NodeIOImpl } from "../io/node-io-impl";
+import { QuickJSIOImpl } from "../io/quickjs-io-impl";
 import { PseudocodeError } from "../errors";
+import * as std from "std";
 
-/**
- * Node.js implementation of the CLI interface
- */
-export class NodeCLIAdapter implements CLIInterface {
+export class QuickJSCLIAdapter implements CLIInterface {
     private readonly packageName = "caie-pseudocode-interpreter";
     private readonly packageVersion = __VERSION__;
 
-    /**
-     * Parse command line arguments
-     * @param args Command line arguments (typically process.argv.slice(2))
-     * @returns Parsed CLI options
-     */
     parseArguments(args: string[]): CLIOptions {
         const options: CLIOptions = {};
 
@@ -69,7 +55,6 @@ export class NodeCLIAdapter implements CLIInterface {
                     break;
 
                 default:
-                    // If it's not a flag, treat it as a file path
                     if (!arg.startsWith("-") && !options.file) {
                         options.file = arg;
                     }
@@ -80,10 +65,6 @@ export class NodeCLIAdapter implements CLIInterface {
         return options;
     }
 
-    /**
-     * Execute the CLI with the given options
-     * @param options CLI options
-     */
     async execute(options: CLIOptions): Promise<void> {
         try {
             if (options.version) {
@@ -97,47 +78,41 @@ export class NodeCLIAdapter implements CLIInterface {
             }
 
             if (!options.file && !options.code) {
-                console.error("Error: Either --file or --code must be specified");
+                std.err.puts("Error: Either --file or --code must be specified\n");
                 this.showHelp();
-                process.exit(1);
+                std.exit(1);
             }
 
-            const io = new NodeIOImpl();
+            const io = new QuickJSIOImpl();
             const interpreter = new Interpreter(io);
 
             const sourceCode = options.file ? await io.readFile(options.file) : options.code!;
 
             if (options.outputFormat === "json") {
                 const analyzeResult = interpreter.analyze(sourceCode);
-                console.log(this.formatAnalyzeResult(analyzeResult));
+                std.out.puts(this.formatAnalyzeResult(analyzeResult));
             } else {
                 const result = options.file
                     ? await interpreter.executeFile(options.file)
                     : await interpreter.execute(options.code!);
 
-                const formattedResult = this.formatResult(result, options.verbose);
-                if (formattedResult) {
-                    console.log(formattedResult);
-                }
+                std.out.puts(this.formatResult(result, options.verbose));
             }
 
             await interpreter.dispose();
-            process.exit(0);
+            std.exit(0);
         } catch (error) {
             const outputFormat = options.outputFormat || "text";
             this.handleError(
                 error instanceof Error ? error : new Error(String(error)),
                 outputFormat,
             );
-            process.exit(1);
+            std.exit(1);
         }
     }
 
-    /**
-     * Show help information
-     */
     showHelp(): void {
-        console.log(`
+        std.out.puts(`
 ${this.packageName} v${this.packageVersion}
 
 A TypeScript interpreter for the CAIE pseudocode language
@@ -162,19 +137,10 @@ EXAMPLES:
 `);
     }
 
-    /**
-     * Show version information
-     */
     showVersion(): void {
-        console.log(`${this.packageName} v${this.packageVersion}`);
+        std.out.puts(`${this.packageName} v${this.packageVersion}\n`);
     }
 
-    /**
-     * Format execution result for output
-     * @param result Execution result
-     * @param format Output format
-     * @returns Formatted result string
-     */
     formatResult(result: ExecutionResult, verbose?: boolean): string {
         let output = "";
 
@@ -187,16 +153,17 @@ EXAMPLES:
                         output += `, column ${result.error.column}`;
                     }
                 }
+                output += "\n";
             }
         }
 
         if (verbose) {
             if (result.executionTime !== undefined) {
-                output += `\nExecution time: ${result.executionTime}ms`;
+                output += `\nExecution time: ${result.executionTime}ms\n`;
             }
 
             if (result.steps !== undefined) {
-                output += `\nExecution steps: ${result.steps}`;
+                output += `Execution steps: ${result.steps}\n`;
             }
         }
 
@@ -222,14 +189,9 @@ EXAMPLES:
         );
     }
 
-    /**
-     * Handle errors
-     * @param error Error to handle
-     * @param format Output format
-     */
     handleError(error: Error, format: "text" | "json"): void {
         if (format === "json") {
-            console.error(
+            std.err.puts(
                 JSON.stringify(
                     {
                         success: false,
@@ -243,11 +205,12 @@ EXAMPLES:
                     2,
                 ),
             );
+            std.err.puts("\n");
         } else {
-            console.error(`Error: ${error.message}`);
+            std.err.puts(`Error: ${error.message}\n`);
             if (error instanceof PseudocodeError && error.line !== undefined) {
-                console.error(
-                    `  at line ${error.line}${error.column !== undefined ? `, column ${error.column}` : ""}`,
+                std.err.puts(
+                    `  at line ${error.line}${error.column !== undefined ? `, column ${error.column}` : ""}\n`,
                 );
             }
         }

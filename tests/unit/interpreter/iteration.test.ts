@@ -136,16 +136,21 @@ UNTIL x > 5
         });
 
         test("REPEAT UNTIL with complex condition", async () => {
-            const { result, output } = await execute(`
+            const { result, output } = await execute(
+                `
 DECLARE Password : STRING
 Password <- ""
 REPEAT
     OUTPUT "Please enter the password"
     INPUT Password
 UNTIL Password = "Secret"
-`, ["Wrong", "Secret"]);
+`,
+                ["Wrong", "Secret"],
+            );
             expect(result.success).toBe(true);
-            expect(output).toBe(["Please enter the password", "Please enter the password"].join("\n"));
+            expect(output).toBe(
+                ["Please enter the password", "Please enter the password"].join("\n"),
+            );
         });
 
         test("REPEAT UNTIL: loop counter", async () => {

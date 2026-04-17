@@ -262,6 +262,7 @@ export class Evaluator {
     private setTypes: Map<string, SetTypeInfo> = new Map();
     private pointerTypes: Map<string, PointerTypeInfo> = new Map();
     private debuggerController?: DebuggerController;
+    private onStep?: () => void;
     private heap: Heap;
     private strictMode: boolean;
     private namespaceImports: Map<string, ImportInfo> = new Map();
@@ -287,6 +288,10 @@ export class Evaluator {
 
     setDebuggerController(controller?: DebuggerController): void {
         this.debuggerController = controller;
+    }
+
+    setOnStep(callback?: () => void): void {
+        this.onStep = callback;
     }
 
     setNamespaceImports(imports: ImportInfo[]): void {
@@ -607,6 +612,7 @@ export class Evaluator {
     }
 
     private executeStatementR(statement: StatementNode): RuntimeAsyncResult<unknown> {
+        this.onStep?.();
         return this.pauseForStepBeforeStatementR(statement).andThen(() =>
             this.evaluateR(statement).orElse((error: RuntimeError) => {
                 if (this.debuggerController && error instanceof RuntimeError) {
@@ -1638,7 +1644,11 @@ export class Evaluator {
                         } else {
                             convertedValue = rawValue;
                         }
-                        const writeResult = this.heap.write(addr, convertedValue, heapResult.value.type);
+                        const writeResult = this.heap.write(
+                            addr,
+                            convertedValue,
+                            heapResult.value.type,
+                        );
                         if (writeResult.isErr()) {
                             throw writeResult.error;
                         }
@@ -2428,7 +2438,8 @@ export class Evaluator {
 
         const visibility = classDef.fieldVisibility[fieldName];
         if (visibility === "PRIVATE") {
-            const isSelfAccess = this.environment.has("SELF") && this.environment.get("SELF") === parentAddress;
+            const isSelfAccess =
+                this.environment.has("SELF") && this.environment.get("SELF") === parentAddress;
             if (!isSelfAccess) {
                 throw new RuntimeError(
                     `Cannot access private field '${fieldName}' of class '${className}'`,

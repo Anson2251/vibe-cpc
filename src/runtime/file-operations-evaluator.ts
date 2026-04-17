@@ -127,29 +127,25 @@ export class FileOperationEvaluator {
                             node.line,
                             node.column,
                         ),
-                ).andThen((data) =>
-                    this.ctx.deserializeRecord(data, node.target),
-                ),
+                ).andThen((data) => this.ctx.deserializeRecord(data, node.target)),
         );
     }
 
     putRecordR(node: PutRecordNode): RuntimeAsyncResult<void> {
         return this.evaluateFileIdentifierR(node.fileIdentifier, node.line, node.column).andThen(
             (fileIdentifier) =>
-                this.ctx
-                    .evaluateExpression(node.source)
-                    .andThen((source) => {
-                        const serialized = this.ctx.serializeRecord(source);
-                        return ResultAsync.fromPromise(
-                            this.fileManager.putRecord(fileIdentifier, serialized),
-                            (error: unknown) =>
-                                new FileIOError(
-                                    `Failed to put record: ${String(error)}`,
-                                    node.line,
-                                    node.column,
-                                ),
-                        );
-                    }),
+                this.ctx.evaluateExpression(node.source).andThen((source) => {
+                    const serialized = this.ctx.serializeRecord(source);
+                    return ResultAsync.fromPromise(
+                        this.fileManager.putRecord(fileIdentifier, serialized),
+                        (error: unknown) =>
+                            new FileIOError(
+                                `Failed to put record: ${String(error)}`,
+                                node.line,
+                                node.column,
+                            ),
+                    );
+                }),
         );
     }
 

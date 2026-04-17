@@ -11,6 +11,7 @@ import { Evaluator } from "./runtime/evaluator";
 import { Linker } from "./runtime/linker";
 import type { IOInterface } from "./io/io-interface";
 import type { ProgramNode } from "./parser/ast-nodes";
+import type { Token } from "./lexer/tokens";
 import { PseudocodeError, ErrorHandler } from "./errors";
 import { InterpreterResult, toPseudocodeError } from "./result";
 import { err } from "neverthrow";
@@ -41,8 +42,6 @@ function detectStrictMode(sourceCode: string): boolean {
  * Interpreter options
  */
 export interface InterpreterOptions {
-    debug?: boolean;
-    maxExecutionSteps?: number;
     strictTypeChecking?: boolean;
 }
 
@@ -51,10 +50,16 @@ export interface InterpreterOptions {
  */
 export interface ExecutionResult {
     success: boolean;
-    output?: string;
     error?: PseudocodeError;
     executionTime?: number;
     steps?: number;
+}
+
+export interface AnalyzeResult {
+    success: boolean;
+    tokens?: Array<{ type: string; value: unknown; line: number; column: number }>;
+    ast?: ProgramNode;
+    error?: PseudocodeError;
 }
 
 /**
@@ -71,8 +76,6 @@ export class Interpreter {
     constructor(io: IOInterface, options: InterpreterOptions = {}) {
         this.io = io;
         this.options = {
-            debug: false,
-            maxExecutionSteps: 10000,
             strictTypeChecking: true,
             ...options,
         };
@@ -90,8 +93,8 @@ export class Interpreter {
     async execute(sourceCode: string): Promise<ExecutionResult> {
         // Unescape any escaped characters in the source code
         sourceCode = unescapeString(sourceCode);
-        const startTime = Date.now(); // Record the start time for execution metrics
-        this.executionSteps = 0; // Reset execution step counter
+        const startTime = Date.now();
+        this.executionSteps = 0;
 
         const strictMode = detectStrictMode(sourceCode);
 
@@ -111,14 +114,12 @@ export class Interpreter {
             namespaceImports = linker.getImports();
         }
 
-        if (this.options.debug) {
-            this.io.output(`AST: ${JSON.stringify(linkedAst, null, 2)}\n`);
-            this.io.output("Evaluating...\n");
-        }
-
         const evaluator = new Evaluator(this.io, strictMode);
         this.currentEvaluator = evaluator;
         evaluator.setDebuggerController(this.debuggerController);
+        evaluator.setOnStep(() => {
+            this.incrementExecutionSteps();
+        });
         evaluator.setNamespaceImports(namespaceImports);
 
         let evalResult;
@@ -166,20 +167,54 @@ export class Interpreter {
         return result.value;
     }
 
-    private parseResult(sourceCode: string): InterpreterResult<ProgramNode> {
-        try {
-            if (this.options.debug) {
-                this.io.output("Lexical analysis...\n");
-            }
+    /**
+     * Analyze source code: lex and parse, returning tokens and AST
+     */
+    analyze(sourceCode: string): AnalyzeResult {
+        sourceCode = unescapeString(sourceCode);
 
+        try {
             const lexer = new Lexer(sourceCode);
             const tokens = lexer.tokenize();
 
-            if (this.options.debug) {
-                this.io.output(`Tokens: ${tokens.length}\n`);
-                this.io.output(`Tokens: \n${tokens.map((token) => token.toString()).join("\n")}\n`);
-                this.io.output("Parsing...\n");
+            const parser = new Parser(tokens);
+            const parseResult = parser.parse();
+
+            if (parseResult.isErr()) {
+                return {
+                    success: false,
+                    tokens: tokens.map((t: Token) => ({
+                        type: t.type,
+                        value: t.value,
+                        line: t.line,
+                        column: t.column,
+                    })),
+                    error: parseResult.error,
+                };
             }
+
+            return {
+                success: true,
+                tokens: tokens.map((t: Token) => ({
+                    type: t.type,
+                    value: t.value,
+                    line: t.line,
+                    column: t.column,
+                })),
+                ast: parseResult.value,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: toPseudocodeError(error),
+            };
+        }
+    }
+
+    private parseResult(sourceCode: string): InterpreterResult<ProgramNode> {
+        try {
+            const lexer = new Lexer(sourceCode);
+            const tokens = lexer.tokenize();
 
             const parser = new Parser(tokens);
             return parser.parse().mapErr((error): PseudocodeError => error);
@@ -191,25 +226,12 @@ export class Interpreter {
     private buildSuccessResult(result: unknown, startTime: number): ExecutionResult {
         return {
             success: true,
-            output:
-                result !== undefined
-                    ? typeof result === "object" && result !== null
-                        ? JSON.stringify(result)
-                        : // eslint-disable-next-line @typescript-eslint/no-base-to-string
-                          String(result)
-                    : undefined,
             executionTime: Date.now() - startTime,
             steps: this.executionSteps,
         };
     }
 
     private buildErrorResult(error: PseudocodeError, startTime: number): ExecutionResult {
-        if (this.options.debug) {
-            console.error(error);
-        }
-
-        this.errorHandler.error(error.message, error.line, error.column);
-
         return {
             success: false,
             error,
@@ -237,15 +259,6 @@ export class Interpreter {
      */
     incrementExecutionSteps(): void {
         this.executionSteps++;
-
-        if (
-            this.options.maxExecutionSteps !== undefined &&
-            this.executionSteps > this.options.maxExecutionSteps
-        ) {
-            throw new PseudocodeError(
-                `Maximum execution steps (${this.options.maxExecutionSteps}) exceeded`,
-            );
-        }
     }
 
     /**

@@ -785,8 +785,8 @@ export class Parser {
         const nameToken = this.consume(TokenType.IDENTIFIER, "Expected procedure name");
         const name = this.tokenString(nameToken, "Expected procedure name to be text");
 
-        let parameters: ParameterNode[] = []
-        if (this.match(TokenType.LEFT_PAREN)){
+        let parameters: ParameterNode[] = [];
+        if (this.match(TokenType.LEFT_PAREN)) {
             parameters = this.parseParameters();
             this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
         }
@@ -826,8 +826,8 @@ export class Parser {
         const nameToken = this.consume(TokenType.IDENTIFIER, "Expected function name");
         const name = this.tokenString(nameToken, "Expected function name to be text");
 
-        let parameters: ParameterNode[] = []
-        if (this.match(TokenType.LEFT_PAREN)){
+        let parameters: ParameterNode[] = [];
+        if (this.match(TokenType.LEFT_PAREN)) {
             parameters = this.parseParameters();
             this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
         }

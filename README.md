@@ -43,7 +43,61 @@ src/
 ├── lexer/            # Tokenization
 ├── parser/           # AST generation
 ├── runtime/          # Execution engine
-└── types/           # Type definitions
+└── types/            # Type definitions
+```
+
+## Test Structure
+
+```
+tests/
+├── setup.ts                          # Vitest global setup
+├── mock-io.ts                        # Mock IO implementation for testing
+├── test-helpers.ts                   # Shared test utilities
+├── lexer/                            # Lexer integration tests
+│   └── lexer.test.ts
+├── parser/                           # Parser integration tests
+│   └── parser.test.ts
+├── unit/
+│   ├── interpreter/                  # Interpreter unit tests (per language feature)
+│   │   ├── arithmetic.test.ts
+│   │   ├── arrays.test.ts
+│   │   ├── control-flow.test.ts
+│   │   ├── debugger.test.ts
+│   │   ├── file-handling.test.ts
+│   │   ├── input-output.test.ts
+│   │   ├── interpreter.test.ts
+│   │   ├── iteration.test.ts
+│   │   ├── oop.test.ts
+│   │   ├── procedures-functions.test.ts
+│   │   ├── relational-and-logic.test.ts
+│   │   ├── selection.test.ts
+│   │   ├── string-operations.test.ts
+│   │   ├── user-defined-types.test.ts
+│   │   └── variables-and-types.test.ts
+│   ├── lexer/                        # Lexer unit tests
+│   │   ├── lexer-edge-cases.test.ts
+│   │   └── lexer-syntax-features.test.ts
+│   ├── parser/                       # Parser unit tests
+│   │   ├── parser.test.ts
+│   │   ├── parser-debugger.test.ts
+│   │   ├── parser-edge-cases.test.ts
+│   │   ├── parser-friendly-errors.test.ts
+│   │   └── parser-syntax-features.test.ts
+│   └── runtime/                      # Runtime unit tests
+│       ├── builtin-functions.test.ts
+│       ├── debugger-controller.test.ts
+│       ├── environment.test.ts
+│       ├── file-manager.test.ts
+│       └── heap.test.ts
+└── integration/                      # Integration tests (multi-feature scenarios)
+    ├── basic.test.ts
+    ├── control-flow.test.ts
+    ├── data-structures.test.ts
+    ├── examples.test.ts
+    ├── file-operations.test.ts
+    ├── modules.test.ts
+    ├── oop.test.ts
+    └── pointers.test.ts
 ```
 
 ## Syntax Support Matrix
@@ -59,8 +113,8 @@ src/
 | Loops | `FOR`, `WHILE`, `REPEAT` | ✅ Supported | `STEP` supported |
 | Routines | `PROCEDURE`, `FUNCTION`, `CALL` | ✅ Supported | `BYREF` caller write-back implemented |
 | File operations | `OPENFILE`, `READFILE`, `WRITEFILE`, `EOF`, random-file ops | ✅ Supported | CAIE-style file identifier syntax |
-| OOP | `CLASS`, `INHERITS`, `NEW`, methods/properties | ⚠️ Partial | Parser support is broader than runtime behavior |
-| Pointers | Pointer type semantics | ❌ Not supported | Decl syntax in guide not yet implemented |
+| OOP | `CLASS`, `INHERITS`, `NEW`, methods/properties | ✅ Supported | Constructors, inheritance, method overriding, visibility |
+| Pointers | `^type`, `p^`, `^x`, `DISPOSE`, `NULL` | ✅ Supported | Pointer dereference, address-of, and null semantics |
 | Constants | `CONSTANT` statement | ✅ Supported | Full statement semantics including type inference |
 | Modularity | `IMPORT`, `EXPORT` | ⚠️ Extension | Compile-time AST expansion; blocked in CAIE_ONLY mode |
 | Strict mode | `// CAIE_ONLY` comment | ⚠️ Extension | Restricts to CAIE standard features only |
@@ -172,6 +226,13 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - **Inheritance**: Class inheritance with SUPER keyword
 - **Access Modifiers**: PUBLIC, PRIVATE
 
+### Pointers
+- **Pointer Types**: `TYPE Ptr = ^INTEGER`
+- **Dereference**: `p^` to access value pointed to
+- **Address-of**: `^x` to get address of variable
+- **NULL**: Null pointer assignment and comparison
+- **DISPOSE**: Free pointer memory
+
 ## Implementation Status
 
 ### Completed
@@ -183,20 +244,25 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - [x] Lexer development
 - [x] Parser development
 - [x] Runtime engine development
-
-### In Progress
 - [x] Type system implementation
 - [x] Error handling system
-- [ ] Testing framework
-- [ ] Documentation and examples
+- [x] Testing framework (Vitest, 600+ tests)
+- [x] Pointer type support
+- [x] OOP with constructors, inheritance, and visibility
+- [x] Random file access (SEEK, GETRECORD, PUTRECORD)
+- [x] IMPORT/EXPORT modularity
+- [x] CAIE_ONLY strict mode
+- [x] Debugger extension
+- [x] Portable binary executable
 
 ### Planned
-- [ ] Portable binary executable
+- (none currently)
 
 ## Getting Started
 
 ### Prerequisites
 - Node.js (for development and testing)
+- pnpm (package manager)
 - TypeScript compiler
 - ES2020 compatible environment
 
@@ -214,9 +280,58 @@ pnpm run build
 
 # Run tests
 pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+
+# Run tests with coverage
+pnpm test:coverage
 ```
 
+### Building a Standalone Binary (Linux/MacOS)
+
+With QuickJS installed (`qjsc` in PATH), you can compile the interpreter into a standalone executable:
+
+```bash
+# Requires: qjsc, gcc, libquickjs-dev
+pnpm run build:binary
+
+# Run the binary
+./dist/caie-pseudocode program.pseudo
+```
+
+The binary is self-contained with no Node.js dependency, suitable for deployment environments.
+
 ## Usage
+
+### CLI
+
+```bash
+# Execute a pseudocode file
+caie-pseudocode program.pseudo
+
+# Execute from a string
+caie-pseudocode --code "DECLARE x : INTEGER\\nx <- 5\\nOUTPUT x"
+
+# Show execution time and steps
+caie-pseudocode --verbose program.pseudo
+
+# Output tokens and AST as JSON (parse only, no execution)
+caie-pseudocode --output json program.pseudo
+```
+
+#### CLI Options
+
+| Option | Description |
+| --- | --- |
+| `-f, --file FILE` | Execute pseudocode from FILE |
+| `-c, --code CODE` | Execute pseudocode from CODE string |
+| `--verbose` | Show execution time and steps |
+| `-o, --output FORMAT` | Output format: `text` (execute, default) or `json` (tokens & AST) |
+| `-v, --version` | Show version information |
+| `-h, --help` | Show help message |
+
+### API
 
 ```typescript
 import { Interpreter } from './src/index';
@@ -225,13 +340,24 @@ import { NodeIO } from './src/io/node-io-impl';
 const io = new NodeIO();
 const interpreter = new Interpreter(io);
 
-const result = interpreter.execute(`
+// Execute pseudocode
+const result = await interpreter.execute(`
 DECLARE x : INTEGER
 x <- 10
 OUTPUT "x = ", x
 `);
 
-console.log(result);
+console.log(result.success, result.executionTime, result.steps);
+
+// Analyze (lex + parse only, no execution)
+const analysis = interpreter.analyze(`
+DECLARE x : INTEGER
+x <- 10
+OUTPUT x
+`);
+
+console.log(analysis.tokens);  // Array of { type, value, line, column }
+console.log(analysis.ast);     // Program AST node
 ```
 
 ## Development
@@ -239,8 +365,9 @@ console.log(result);
 ```bash
 pnpm install
 pnpm run build
-pnpm run test
+pnpm test
 pnpm run lint
+pnpm run typecheck
 ```
 
 ## License

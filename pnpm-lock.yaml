@@ -33,6 +33,9 @@ importers:
       oxlint-tsgolint:
         specifier: ^0.20.0
         version: 0.20.0
+      quickjs-types:
+        specifier: ^1.2.0
+        version: 1.2.0
       rolldown:
         specifier: 1.0.0-rc.15
         version: 1.0.0-rc.15
@@ -757,6 +760,9 @@ packages:
     resolution: {integrity: sha512-pMMHxBOZKFU6HgAZ4eyGnwXF/EvPGGqUr0MnZ5+99485wwW41kW91A4LOGxSHhgugZmSChL5AlElNdwlNgcnLQ==}
     engines: {node: ^10 || ^12 || >=14}
 
+  quickjs-types@1.2.0:
+    resolution: {integrity: sha512-iaznJvSrYWLt9hB5xdVv+DJkXGDN3ARwXrXVm1U7pOHBfrIQN1D+GCY1Kil2QLtj9uAhGnGat8HERxVT3q3tow==}
+
   rolldown@1.0.0-rc.15:
     resolution: {integrity: sha512-Ff31guA5zT6WjnGp0SXw76X6hzGRk/OQq2hE+1lcDe+lJdHSgnSX6nK3erbONHyCbpSj9a9E+uX/OvytZoWp2g==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1430,6 +1436,8 @@ snapshots:
       nanoid: 3.3.11
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  quickjs-types@1.2.0: {}
 
   rolldown@1.0.0-rc.15:
     dependencies:

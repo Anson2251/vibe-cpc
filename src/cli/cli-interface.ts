@@ -5,27 +5,17 @@
  * across different JavaScript environments (Node.js, browser, etc.).
  */
 
-import type { ExecutionResult } from "../interpreter";
+import type { ExecutionResult, AnalyzeResult } from "../interpreter";
 
 /**
  * CLI command options
  */
 export interface CLIOptions {
-    /** Input file to execute */
     file?: string;
-    /** Source code to execute directly */
     code?: string;
-    /** Enable debug mode */
-    debug?: boolean;
-    /** Maximum execution steps */
-    maxExecutionSteps?: number;
-    /** Enable strict type checking */
-    strictTypeChecking?: boolean;
-    /** Output format (text, json) */
+    verbose?: boolean;
     outputFormat?: "text" | "json";
-    /** Version flag */
     version?: boolean;
-    /** Help flag */
     help?: boolean;
 }
 
@@ -63,12 +53,9 @@ export interface CLIInterface {
      * @param format Output format
      * @returns Formatted result string
      */
-    formatResult(result: ExecutionResult, format: "text" | "json"): string;
+    formatResult(result: ExecutionResult, verbose?: boolean): string;
 
-    /**
-     * Handle errors
-     * @param error Error to handle
-     * @param format Output format
-     */
+    formatAnalyzeResult(result: AnalyzeResult): string;
+
     handleError(error: Error, format: "text" | "json"): void;
 }

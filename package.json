@@ -1,7 +1,7 @@
 {
   "name": "caie-pseudocode-interpreter",
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha.1",
   "description": "A TypeScript interpreter for the CAIE pseudocode language",
   "main": "dist/index.cjs",
   "types": "dist/types/index.d.ts",
@@ -12,6 +12,7 @@
     "typecheck": "tsgo --noEmit -p tsconfig.build.json",
     "build:types": "tsgo -p tsconfig.types.json",
     "build": "pnpm clean && pnpm typecheck && rolldown -c && pnpm build:types",
+    "build:binary": "pnpm build && bash scripts/build-binary.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -38,6 +39,7 @@
     "oxfmt": "^0.44.0",
     "oxlint": "^1.60.0",
     "oxlint-tsgolint": "^0.20.0",
+    "quickjs-types": "^1.2.0",
     "rolldown": "1.0.0-rc.15",
     "vitest": "^4.1.4"
   },

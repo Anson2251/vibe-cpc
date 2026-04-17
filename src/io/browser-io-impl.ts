@@ -45,12 +45,12 @@ export class BrowserIOImpl implements IOInterface {
         if (!options.inputProvider && !globalThis.prompt) {
             throw new Error("BrowserIO requires an inputProvider in browser environment");
         }
-        // eslint-disable-next-line typescript-eslint/promise-function-async
         this.inputProvider =
             options.inputProvider ||
-            ((prompt?: string) => {
+            // oxlint-disable-next-line typescript/require-await
+            (async (prompt?: string) => {
                 const result = globalThis.prompt?.(prompt);
-                return Promise.resolve(result || "");
+                return result || "";
             });
     }
 

@@ -6,7 +6,7 @@
  */
 
 // Export the CLI interface
-export { CLIInterface, CLIOptions } from "./cli-interface";
+export type { CLIInterface, CLIOptions } from "./cli-interface";
 
 // Export the Node.js CLI adapter
 export { NodeCLIAdapter } from "./node-cli-adapter";

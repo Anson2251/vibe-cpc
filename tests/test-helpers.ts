@@ -17,8 +17,6 @@ export class TestRunner {
     constructor() {
         this.mockIO = new MockIO();
         this.interpreter = new Interpreter(this.mockIO, {
-            debug: false,
-            maxExecutionSteps: 1000,
             strictTypeChecking: true,
         });
     }

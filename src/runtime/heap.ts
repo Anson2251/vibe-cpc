@@ -212,9 +212,16 @@ export class Heap {
         if (typeof type === "object" && type !== null && "bounds" in type) {
             const arrayType = type as { bounds: unknown[] };
             if (arrayType.bounds.length > 0) {
-                const firstBound = arrayType.bounds[0] as { lower: unknown };
-                if (typeof firstBound.lower === "number") {
-                    return firstBound.lower;
+                const firstBound = arrayType.bounds[0];
+                if (
+                    typeof firstBound === "object" &&
+                    firstBound !== null &&
+                    "lower" in firstBound
+                ) {
+                    const bound = firstBound as { lower: unknown };
+                    if (typeof bound.lower === "number") {
+                        return bound.lower;
+                    }
                 }
             }
         }
