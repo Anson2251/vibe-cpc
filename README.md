@@ -1,6 +1,6 @@
-# CAIE Pseudocode Interpreter
+# Vibe CPC
 
-A TypeScript interpreter for the CAIE (Cambridge Assessment International Education) pseudocode language, designed to be ES2020 compatible and environment-agnostic.
+A TypeScript interpreter for the CAIE (Cambridge Assessment International Education) pseudocode language (CPC), designed to be ES2020 compatible and environment-agnostic.
 
 ## Features
 
@@ -256,7 +256,7 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - [x] Portable binary executable
 
 ### Planned
-- (none currently)
+- Prepare 0.1.0-alpha.1 release
 
 ## Getting Started
 
