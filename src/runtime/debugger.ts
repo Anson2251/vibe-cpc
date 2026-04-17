@@ -669,14 +669,16 @@ export class DebuggerController {
                     const heapObj = heapSnapshot.get(element)!;
                     return this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited);
                 }
+                // oxlint-disable-next-line typescript-eslint/no-unsafe-return
                 return element;
             });
         }
 
         if (typeof type === "object" && "fields" in type && typeof value === "object" && value !== null && !Array.isArray(value)) {
+            // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion
             const record = value as Record<string, unknown>;
             const resolved: Record<string, unknown> = {};
-            for (const [fieldName, fieldType] of Object.entries(type.fields)) {
+            for (const [fieldName, _fieldType] of Object.entries(type.fields)) {
                 const fieldValue = record[fieldName];
                 if (typeof fieldValue === "number" && heapSnapshot.has(fieldValue)) {
                     if (visited.has(fieldValue)) {
