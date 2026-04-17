@@ -251,4 +251,6 @@ AGPL
 
 Based on Cambridge International AS & A Level Computer Science 9618 pseudocode specification.
 
+This project is heavily inspired by [iewnfod/CAIE_Code](https://github.com/iewnfod/CAIE_Code).
+
 Cooperated with GLM-4.5 & GPT-5.3-Codex.

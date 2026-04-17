@@ -16,7 +16,7 @@ describe("Parser edge cases", () => {
         }
     });
 
-    test("parses IF with ELSE branch and nested statements", () => {
+    test("parses IF with ELSE branch and multiline statements", () => {
         const result = parse(`
 IF 1 = 1 THEN
   OUTPUT "ok"

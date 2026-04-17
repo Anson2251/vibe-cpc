@@ -689,6 +689,10 @@ describe("Interpreter Integration Tests", () => {
       `;
 
             const result = await testRunner.runCode(code);
+            if (!result.success) {
+                console.log("ERROR:", result.error);
+                console.log("OUTPUT:", result.output);
+            }
             expectOutput(result, "yes");
         });
 
@@ -1525,6 +1529,26 @@ describe("Interpreter Integration Tests", () => {
             expectOutput(result, "yes");
         });
 
+        test("parses IF with ELSE branch and nested statements", async () => {
+            const code = `
+            DECLARE x : INTEGER
+            x <- 10
+            DECLARE y : INTEGER
+            y <- 5
+            IF (
+                (x > y)
+                AND
+                (x < 15)
+            ) THEN
+                OUTPUT "yes"
+            ELSE
+                OUTPUT "no"
+            ENDIF
+        `;
+            const result = await testRunner.runCode(code);
+            expectOutput(result, "yes");
+        });
+
         test("should prevent reassignment of a constant", async () => {
             const code = `
         CONSTANT Pi = 3
@@ -1775,7 +1799,9 @@ describe("Interpreter Integration Tests", () => {
 
     describe("IMPORT and EXPORT", () => {
         test("should import and call exported function", async () => {
-            testRunner.setFileContent("mathlib.cpc", `
+            testRunner.setFileContent(
+                "mathlib.cpc",
+                `
 FUNCTION Add(A : INTEGER, B : INTEGER) RETURNS INTEGER
     RETURN A + B
 ENDFUNCTION
@@ -1785,7 +1811,8 @@ FUNCTION Multiply(A : INTEGER, B : INTEGER) RETURNS INTEGER
 ENDFUNCTION
 
 EXPORT Add, Multiply
-            `);
+            `,
+            );
 
             const code = `
 IMPORT "mathlib"
@@ -1798,7 +1825,9 @@ OUTPUT Multiply(2, 5)
         });
 
         test("should import with namespace using CONSTANT", async () => {
-            testRunner.setFileContent("mathlib.cpc", `
+            testRunner.setFileContent(
+                "mathlib.cpc",
+                `
 FUNCTION Add(A : INTEGER, B : INTEGER) RETURNS INTEGER
     RETURN A + B
 ENDFUNCTION
@@ -1808,7 +1837,8 @@ FUNCTION Multiply(A : INTEGER, B : INTEGER) RETURNS INTEGER
 ENDFUNCTION
 
 EXPORT Add, Multiply
-            `);
+            `,
+            );
 
             const code = `
 CONSTANT math = IMPORT "mathlib"
@@ -1821,7 +1851,9 @@ OUTPUT math.Multiply(2, 5)
         });
 
         test("should not import unexported declarations", async () => {
-            testRunner.setFileContent("lib.cpc", `
+            testRunner.setFileContent(
+                "lib.cpc",
+                `
 FUNCTION Visible() RETURNS STRING
     RETURN "visible"
 ENDFUNCTION
@@ -1831,7 +1863,8 @@ FUNCTION Hidden() RETURNS STRING
 ENDFUNCTION
 
 EXPORT Visible
-            `);
+            `,
+            );
 
             const code = `
 IMPORT "lib"
@@ -1843,11 +1876,14 @@ OUTPUT Visible()
         });
 
         test("should not import anything when no EXPORT statement", async () => {
-            testRunner.setFileContent("lib.cpc", `
+            testRunner.setFileContent(
+                "lib.cpc",
+                `
 FUNCTION Add(A : INTEGER, B : INTEGER) RETURNS INTEGER
     RETURN A + B
 ENDFUNCTION
-            `);
+            `,
+            );
 
             const code = `
 IMPORT "lib"
@@ -1891,13 +1927,16 @@ x <- 5
         });
 
         test("should error on unknown namespace", async () => {
-            testRunner.setFileContent("lib.cpc", `
+            testRunner.setFileContent(
+                "lib.cpc",
+                `
 FUNCTION Add(A : INTEGER, B : INTEGER) RETURNS INTEGER
     RETURN A + B
 ENDFUNCTION
 
 EXPORT Add
-            `);
+            `,
+            );
 
             const code = `
 CONSTANT math = IMPORT "lib"
@@ -1909,7 +1948,9 @@ OUTPUT unknown.Add(1, 2)
         });
 
         test("should error on unexported function in namespace", async () => {
-            testRunner.setFileContent("lib.cpc", `
+            testRunner.setFileContent(
+                "lib.cpc",
+                `
 FUNCTION Add(A : INTEGER, B : INTEGER) RETURNS INTEGER
     RETURN A + B
 ENDFUNCTION
@@ -1919,7 +1960,8 @@ FUNCTION Secret() RETURNS STRING
 ENDFUNCTION
 
 EXPORT Add
-            `);
+            `,
+            );
 
             const code = `
 CONSTANT math = IMPORT "lib"
@@ -1931,13 +1973,16 @@ OUTPUT math.Secret()
         });
 
         test("should export procedures", async () => {
-            testRunner.setFileContent("lib.cpc", `
+            testRunner.setFileContent(
+                "lib.cpc",
+                `
 PROCEDURE Greet(Name : STRING)
     OUTPUT "Hello, " & Name
 ENDPROCEDURE
 
 EXPORT Greet
-            `);
+            `,
+            );
 
             const code = `
 IMPORT "lib"

@@ -859,6 +859,14 @@ export class Parser {
                 const line = this.peek().line;
                 const column = this.peek().column;
 
+                while (this.match(TokenType.COMMA)) {
+                    this.consume(TokenType.COMMA, "Expected ',' after parameter");
+                }
+
+                while (this.match(TokenType.NEWLINE)) {
+                    this.consumeNewline();
+                }
+
                 let mode = ParameterMode.BY_VALUE;
                 if (this.match(TokenType.BYVAL)) {
                     mode = ParameterMode.BY_VALUE;
@@ -881,6 +889,10 @@ export class Parser {
                     column,
                 });
             } while (this.match(TokenType.COMMA));
+
+            while (this.match(TokenType.NEWLINE)) {
+                this.consumeNewline();
+            }
         }
 
         return parameters;
@@ -996,7 +1008,10 @@ export class Parser {
     private importStatement(): ImportStatementNode {
         const line = this.previous().line;
         const column = this.previous().column;
-        const pathToken = this.consume(TokenType.STRING_LITERAL, "Expected file path string after IMPORT");
+        const pathToken = this.consume(
+            TokenType.STRING_LITERAL,
+            "Expected file path string after IMPORT",
+        );
         const filePath = String(pathToken.value);
         this.consumeNewline();
         return {
@@ -1014,7 +1029,10 @@ export class Parser {
         const nameToken = this.consume(TokenType.IDENTIFIER, "Expected identifier after EXPORT");
         names.push(String(nameToken.value));
         while (this.match(TokenType.COMMA)) {
-            const nextName = this.consume(TokenType.IDENTIFIER, "Expected identifier after comma in EXPORT");
+            const nextName = this.consume(
+                TokenType.IDENTIFIER,
+                "Expected identifier after comma in EXPORT",
+            );
             names.push(String(nextName.value));
         }
         this.consumeNewline();
@@ -1462,10 +1480,13 @@ export class Parser {
      * Parse a logical OR expression
      */
     private logicalOr(): ExpressionNode {
+        this.skipNewlines();
+
         let expr = this.logicalAnd();
 
         while (this.match(TokenType.OR)) {
             const operator = this.tokenOperator(this.previous(), "Expected OR operator");
+            this.skipNewlines();
             const right = this.logicalAnd();
             const binaryExpression: BinaryExpressionNode = {
                 type: "BinaryExpression",
@@ -1476,6 +1497,7 @@ export class Parser {
                 column: expr.column,
             };
             expr = binaryExpression;
+            this.skipNewlinesIfFollowedBy(TokenType.OR);
         }
 
         return expr;
@@ -1487,8 +1509,11 @@ export class Parser {
     private logicalAnd(): ExpressionNode {
         let expr = this.equality();
 
+        this.skipNewlinesIfFollowedBy(TokenType.AND);
+
         while (this.match(TokenType.AND)) {
             const operator = this.tokenOperator(this.previous(), "Expected AND operator");
+            this.skipNewlines();
             const right = this.equality();
             const binaryExpression: BinaryExpressionNode = {
                 type: "BinaryExpression",
@@ -1499,6 +1524,7 @@ export class Parser {
                 column: expr.column,
             };
             expr = binaryExpression;
+            this.skipNewlinesIfFollowedBy(TokenType.AND);
         }
 
         return expr;
@@ -1670,8 +1696,7 @@ export class Parser {
             }
 
             if (this.isMemberAccessNode(expr) && this.match(TokenType.LEFT_PAREN)) {
-                const namespace =
-                    this.isIdentifierNode(expr.object) ? expr.object.name : undefined;
+                const namespace = this.isIdentifierNode(expr.object) ? expr.object.name : undefined;
                 const args: ExpressionNode[] = [];
 
                 if (!this.check(TokenType.RIGHT_PAREN)) {
@@ -1757,7 +1782,10 @@ export class Parser {
         if (this.match(TokenType.IMPORT)) {
             const line = this.previous().line;
             const column = this.previous().column;
-            const pathToken = this.consume(TokenType.STRING_LITERAL, "Expected file path string after IMPORT");
+            const pathToken = this.consume(
+                TokenType.STRING_LITERAL,
+                "Expected file path string after IMPORT",
+            );
             const filePath = String(pathToken.value);
             return {
                 type: "ImportExpression",
@@ -1875,6 +1903,7 @@ export class Parser {
 
         if (this.match(TokenType.LEFT_PAREN)) {
             const expr = this.expression();
+            this.skipNewlines();
             this.consume(TokenType.RIGHT_PAREN, "Expected ')' after expression");
             return expr;
         }
@@ -2093,6 +2122,22 @@ export class Parser {
      */
     private consumeNewline(): void {
         this.match(TokenType.NEWLINE);
+    }
+
+    private skipNewlines(): void {
+        while (this.check(TokenType.NEWLINE)) {
+            this.advance();
+        }
+    }
+
+    private skipNewlinesIfFollowedBy(tokenType: TokenType): void {
+        let offset = 0;
+        while (this.peekOffset(offset).type === TokenType.NEWLINE) {
+            offset++;
+        }
+        if (this.peekOffset(offset).type === tokenType) {
+            this.skipNewlines();
+        }
     }
 
     /**
