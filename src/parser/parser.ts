@@ -785,9 +785,11 @@ export class Parser {
         const nameToken = this.consume(TokenType.IDENTIFIER, "Expected procedure name");
         const name = this.tokenString(nameToken, "Expected procedure name to be text");
 
-        this.consume(TokenType.LEFT_PAREN, "Expected '(' after procedure name");
-        const parameters = this.parseParameters();
-        this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
+        let parameters: ParameterNode[] = []
+        if (this.match(TokenType.LEFT_PAREN)){
+            parameters = this.parseParameters();
+            this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
+        }
         this.consumeNewline();
 
         const body: StatementNode[] = [];
@@ -824,9 +826,11 @@ export class Parser {
         const nameToken = this.consume(TokenType.IDENTIFIER, "Expected function name");
         const name = this.tokenString(nameToken, "Expected function name to be text");
 
-        this.consume(TokenType.LEFT_PAREN, "Expected '(' after function name");
-        const parameters = this.parseParameters();
-        this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
+        let parameters: ParameterNode[] = []
+        if (this.match(TokenType.LEFT_PAREN)){
+            parameters = this.parseParameters();
+            this.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters");
+        }
         this.consumeOptionalNewline();
         this.consume(TokenType.RETURNS, "Expected 'RETURNS' in function declaration");
         const returnType = this.parseDataType();

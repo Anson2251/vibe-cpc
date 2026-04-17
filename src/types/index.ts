@@ -151,7 +151,6 @@ export class TypeValidator {
         }
         if (typeof type === "object" && type !== null) {
             if ("elementType" in type && !("kind" in type)) return "ARRAY";
-            if ("fields" in type) return "RECORD";
             if ("kind" in type) {
                 switch (type.kind) {
                     case "ENUM":
@@ -162,8 +161,11 @@ export class TypeValidator {
                         return "POINTER";
                     case "INFERRED":
                         return "INFERRED";
+                    case "CLASS":
+                        return type.name;
                 }
             }
+            if ("fields" in type) return "RECORD";
         }
         return "UNKNOWN";
     }

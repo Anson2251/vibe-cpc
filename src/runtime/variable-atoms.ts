@@ -164,6 +164,10 @@ export class VariableAtomFactory {
             return NULL_POINTER;
         }
 
+        if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
+            return NULL_POINTER;
+        }
+
         if (typeof type === "object" && "elementType" in type) {
             return [];
         }
@@ -230,6 +234,10 @@ export class VariableAtomFactory {
                 throw new RuntimeError(`Expected POINTER, got ${typeof value}`);
             }
         } else if (typeof type === "object" && "kind" in type && type.kind === "INFERRED") {
+        } else if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
+            if (typeof value !== "number") {
+                throw new RuntimeError(`Expected class '${type.name}', got ${typeof value}`);
+            }
         } else if (typeof type === "object" && "elementType" in type) {
             if (!Array.isArray(value)) {
                 throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);

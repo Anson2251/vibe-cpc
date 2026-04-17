@@ -279,6 +279,8 @@ export class Evaluator {
             evaluateExpression: (expression) => this.evaluateR(expression),
             assignToTarget: (target, value, line, column) =>
                 this.assignToTargetR(target, value, line, column),
+            serializeRecord: (value) => this.serializeRecord(value),
+            deserializeRecord: (data, target) => this.deserializeRecord(data, target),
         });
         this.initializeBuiltInRoutines();
     }
@@ -1114,6 +1116,17 @@ export class Evaluator {
     }
 
     private async evaluateCallStatement(node: CallStatementNode): Promise<void> {
+        if (!node.namespace && this.environment.hasRoutine(node.name)) {
+            const signature = this.environment.getRoutine(node.name);
+            if (signature.returnType) {
+                throw new RuntimeError(
+                    `Cannot CALL function '${node.name}', use it in an expression instead`,
+                    node.line,
+                    node.column,
+                );
+            }
+        }
+
         await this.evaluateCallExpression({
             type: "CallExpression",
             name: node.name,
@@ -1513,6 +1526,128 @@ export class Evaluator {
         }
     }
 
+    private serializeRecord(value: unknown): string {
+        if (isRecord(value)) {
+            const fields: string[] = [];
+            for (const [key, addr] of Object.entries(value)) {
+                if (typeof addr === "number") {
+                    const result = this.heap.read(addr);
+                    if (result.isOk()) {
+                        fields.push(`${key}=${this.serializeRecord(result.value.value)}`);
+                    }
+                } else {
+                    fields.push(`${key}=${this.serializeRecord(addr)}`);
+                }
+            }
+            return `{${fields.join(",")}}`;
+        }
+        if (Array.isArray(value)) {
+            const items = value.map((addr) => {
+                if (typeof addr === "number") {
+                    const result = this.heap.read(addr);
+                    if (result.isOk()) {
+                        return this.serializeRecord(result.value.value);
+                    }
+                }
+                return String(addr);
+            });
+            return `[${items.join(",")}]`;
+        }
+        return String(value);
+    }
+
+    private deserializeRecord(data: string, target: ExpressionNode): RuntimeAsyncResult<void> {
+        return this.evaluateR(target).andThen((currentValue) => {
+            if (!isRecord(currentValue)) {
+                return errAsync(
+                    new RuntimeError(
+                        "GETRECORD target must be a user-defined type variable",
+                        target.line,
+                        target.column,
+                    ),
+                );
+            }
+            try {
+                const parsed = this.parseRecordData(data);
+                this.reconstructRecord(parsed, currentValue);
+                return okAsync(undefined);
+            } catch (e) {
+                return errAsync(
+                    new RuntimeError(
+                        `Failed to deserialize record: ${e instanceof Error ? e.message : String(e)}`,
+                        target.line,
+                        target.column,
+                    ),
+                );
+            }
+        });
+    }
+
+    private parseRecordData(data: string): Record<string, string> {
+        const result: Record<string, string> = {};
+        if (!data.startsWith("{") || !data.endsWith("}")) {
+            throw new Error(`Invalid record format: ${data}`);
+        }
+        const content = data.slice(1, -1);
+        if (!content) return result;
+        let depth = 0;
+        let current = "";
+        for (const ch of content) {
+            if (ch === "{" || ch === "[") depth++;
+            else if (ch === "}" || ch === "]") depth--;
+            if (ch === "," && depth === 0) {
+                const eqIndex = current.indexOf("=");
+                if (eqIndex > 0) {
+                    const key = current.slice(0, eqIndex);
+                    const val = current.slice(eqIndex + 1);
+                    result[key] = val;
+                }
+                current = "";
+            } else {
+                current += ch;
+            }
+        }
+        if (current) {
+            const eqIndex = current.indexOf("=");
+            if (eqIndex > 0) {
+                const key = current.slice(0, eqIndex);
+                const val = current.slice(eqIndex + 1);
+                result[key] = val;
+            }
+        }
+        return result;
+    }
+
+    private reconstructRecord(
+        parsed: Record<string, string>,
+        template: Record<string, unknown>,
+    ): void {
+        for (const key of Object.keys(template)) {
+            if (key in parsed) {
+                const addr = template[key];
+                if (typeof addr === "number") {
+                    const heapResult = this.heap.read(addr);
+                    if (heapResult.isOk()) {
+                        const currentValue = heapResult.value.value;
+                        const rawValue = parsed[key];
+                        let convertedValue: unknown;
+                        if (typeof currentValue === "number") {
+                            convertedValue = Number(rawValue);
+                        } else if (typeof currentValue === "boolean") {
+                            convertedValue = rawValue === "true";
+                        } else {
+                            convertedValue = rawValue;
+                        }
+                        const writeResult = this.heap.write(addr, convertedValue, heapResult.value.type);
+                        if (writeResult.isErr()) {
+                            throw writeResult.error;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private evaluateIdentifier(node: IdentifierNode) {
         if (this.environment.has(node.name)) {
             return this.environment.get(node.name);
@@ -1657,6 +1792,14 @@ export class Evaluator {
                     node.column,
                 );
             }
+        } else if (this.environment.has("SELF")) {
+            const selfMethodResult = await this.tryObjectMethodCall({
+                ...node,
+                namespace: "SELF",
+            });
+            if (selfMethodResult.handled) {
+                return selfMethodResult.value;
+            }
         }
 
         if (routineName === "EOF") {
@@ -1783,8 +1926,13 @@ export class Evaluator {
     }
 
     private async evaluateMemberAccess(node: MemberAccessNode): Promise<unknown> {
-        const address = await this.resolveTargetAddress(node);
-        const result = this.heap.read(address);
+        const parentAddress = await this.resolveTargetAddress(node.object);
+        this.checkFieldVisibility(parentAddress, node.field, node.line, node.column);
+        const fieldAddrResult = this.heap.readFieldAddress(parentAddress, node.field);
+        if (fieldAddrResult.isErr()) {
+            throw fieldAddrResult.error;
+        }
+        const result = this.heap.read(fieldAddrResult.value);
         if (result.isErr()) {
             throw result.error;
         }
@@ -2224,41 +2372,18 @@ export class Evaluator {
 
             let currentAddress = elemAddrResult.value;
             for (let i = 1; i < indices.length; i++) {
-                const subArrayResult = this.heap.read(currentAddress);
-                if (subArrayResult.isErr()) {
-                    throw subArrayResult.error;
+                const subElemResult = this.heap.readElementAddress(currentAddress, indices[i]);
+                if (subElemResult.isErr()) {
+                    throw subElemResult.error;
                 }
-                const subArray = subArrayResult.value.value;
-                if (!Array.isArray(subArray)) {
-                    throw new RuntimeError(
-                        "Multi-dimensional array access on non-array",
-                        target.line,
-                        target.column,
-                    );
-                }
-                if (indices[i] < 1 || indices[i] > subArray.length) {
-                    throw new RuntimeError(
-                        `Array index out of bounds: ${indices[i]}`,
-                        target.line,
-                        target.column,
-                    );
-                }
-                const element: unknown = subArray[indices[i] - 1];
-                if (typeof element !== "number") {
-                    throw new RuntimeError(
-                        "Invalid array element address",
-                        target.line,
-                        target.column,
-                    );
-                }
-                currentAddress = element;
+                currentAddress = subElemResult.value;
             }
-
             return currentAddress;
         }
 
         if (isMemberAccessNode(target)) {
             const parentAddress = await this.resolveTargetAddress(target.object);
+            this.checkFieldVisibility(parentAddress, target.field, target.line, target.column);
             const fieldAddrResult = this.heap.readFieldAddress(parentAddress, target.field);
             if (fieldAddrResult.isErr()) {
                 throw fieldAddrResult.error;
@@ -2283,6 +2408,35 @@ export class Evaluator {
             target.line,
             target.column,
         );
+    }
+
+    private checkFieldVisibility(
+        parentAddress: number,
+        fieldName: string,
+        line?: number,
+        column?: number,
+    ): void {
+        const heapResult = this.heap.read(parentAddress);
+        if (heapResult.isErr()) return;
+
+        const objType = heapResult.value.type;
+        if (typeof objType !== "object" || objType === null || !("name" in objType)) return;
+
+        const className = (objType as { name: string }).name;
+        const classDef = this.resolveFullClassDefinition(className);
+        if (!classDef) return;
+
+        const visibility = classDef.fieldVisibility[fieldName];
+        if (visibility === "PRIVATE") {
+            const isSelfAccess = this.environment.has("SELF") && this.environment.get("SELF") === parentAddress;
+            if (!isSelfAccess) {
+                throw new RuntimeError(
+                    `Cannot access private field '${fieldName}' of class '${className}'`,
+                    line,
+                    column,
+                );
+            }
+        }
     }
 
     private resolveArrayRootAtom(node: ArrayAccessNode): VariableAtom {
@@ -2469,6 +2623,9 @@ export class Evaluator {
         if (typeof type === "object" && "kind" in type && type.kind === "INFERRED") {
             return 0;
         }
+        if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
+            return NULL_POINTER;
+        }
         if (typeof type === "object" && "fields" in type) {
             const result: Record<string, unknown> = {};
             for (const [fieldName, fieldType] of Object.entries(type.fields)) {
@@ -2543,6 +2700,11 @@ export class Evaluator {
         if (resolvedPointer) {
             resolving.delete(lookupName);
             return resolvedPointer;
+        }
+        const resolvedClass = this.classDefinitions.get(type.name);
+        if (resolvedClass) {
+            resolving.delete(lookupName);
+            return resolvedClass;
         }
         if (!resolved) {
             resolving.delete(lookupName);

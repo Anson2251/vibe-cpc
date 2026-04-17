@@ -21,6 +21,8 @@ export interface FileOperationExecutionContext {
         line?: number,
         column?: number,
     ): RuntimeAsyncResult<void>;
+    serializeRecord(value: unknown): string;
+    deserializeRecord(data: string, target: ExpressionNode): RuntimeAsyncResult<void>;
 }
 
 export class FileOperationEvaluator {
@@ -125,8 +127,8 @@ export class FileOperationEvaluator {
                             node.line,
                             node.column,
                         ),
-                ).andThen((record) =>
-                    this.ctx.assignToTarget(node.target, record, node.line, node.column),
+                ).andThen((data) =>
+                    this.ctx.deserializeRecord(data, node.target),
                 ),
         );
     }
@@ -136,17 +138,18 @@ export class FileOperationEvaluator {
             (fileIdentifier) =>
                 this.ctx
                     .evaluateExpression(node.source)
-                    .andThen((source) =>
-                        ResultAsync.fromPromise(
-                            this.fileManager.putRecord(fileIdentifier, String(source)),
+                    .andThen((source) => {
+                        const serialized = this.ctx.serializeRecord(source);
+                        return ResultAsync.fromPromise(
+                            this.fileManager.putRecord(fileIdentifier, serialized),
                             (error: unknown) =>
                                 new FileIOError(
                                     `Failed to put record: ${String(error)}`,
                                     node.line,
                                     node.column,
                                 ),
-                        ),
-                    ),
+                        );
+                    }),
         );
     }
 

@@ -193,16 +193,32 @@ export class Heap {
             return err(new RuntimeError("Array access on non-array value"));
         }
 
-        if (index < 1 || index > arrayValue.length) {
+        const arrayType = arrayResult.value.type;
+        const lowerBound = this.getArrayLowerBound(arrayType);
+
+        if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
             return err(new RuntimeError(`Array index out of bounds: ${index}`));
         }
 
-        const elementAddress: unknown = arrayValue[index - 1];
+        const elementAddress: unknown = arrayValue[index - lowerBound];
         if (typeof elementAddress !== "number") {
             return err(new RuntimeError("Invalid array element address"));
         }
 
         return ok(elementAddress);
+    }
+
+    private getArrayLowerBound(type: TypeInfo): number {
+        if (typeof type === "object" && type !== null && "bounds" in type) {
+            const arrayType = type as { bounds: unknown[] };
+            if (arrayType.bounds.length > 0) {
+                const firstBound = arrayType.bounds[0] as { lower: unknown };
+                if (typeof firstBound.lower === "number") {
+                    return firstBound.lower;
+                }
+            }
+        }
+        return 1;
     }
 
     readFieldAddress(recordAddress: number, field: string): HeapResult<number> {
@@ -257,6 +273,10 @@ export class Heap {
         }
 
         if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
+            return value;
+        }
+
+        if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
             return value;
         }
 
@@ -368,6 +388,10 @@ export class Heap {
         }
 
         if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
+            return NULL_POINTER;
+        }
+
+        if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
             return NULL_POINTER;
         }
 
