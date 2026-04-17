@@ -340,7 +340,7 @@ export class Heap {
         return copy;
     }
 
-    private getDefaultValue(type: TypeInfo): unknown {
+    getDefaultValue(type: TypeInfo): unknown {
         if (typeof type === "string") {
             switch (type) {
                 case PseudocodeType.INTEGER:

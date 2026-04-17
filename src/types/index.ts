@@ -201,6 +201,29 @@ export interface InferredTypeInfo {
     kind: "INFERRED";
 }
 
+export interface ClassFieldInfo {
+    name: string;
+    dataType: TypeInfo;
+    visibility: "PUBLIC" | "PRIVATE";
+}
+
+export interface ClassMethodInfo {
+    name: string;
+    visibility: "PUBLIC" | "PRIVATE";
+    parameters: ParameterInfo[];
+    returnType?: TypeInfo;
+    body: unknown[];
+}
+
+export interface ClassTypeInfo {
+    kind: "CLASS";
+    name: string;
+    inherits?: string;
+    fields: Record<string, TypeInfo>;
+    fieldVisibility: Record<string, "PUBLIC" | "PRIVATE">;
+    methods: Record<string, ClassMethodInfo>;
+}
+
 export type TypeInfo =
     | PseudocodeType
     | ArrayTypeInfo
@@ -208,7 +231,8 @@ export type TypeInfo =
     | EnumTypeInfo
     | SetTypeInfo
     | PointerTypeInfo
-    | InferredTypeInfo;
+    | InferredTypeInfo
+    | ClassTypeInfo;
 
 /**
  * Array bound information for a single dimension

@@ -26,6 +26,9 @@ import {
     TypeDeclarationNode,
     SetDeclarationNode,
     ClassDeclarationNode,
+    MethodDeclarationNode,
+    SuperCallNode,
+    RuntimeMethodInfo,
     DebuggerNode,
     BinaryExpressionNode,
     UnaryExpressionNode,
@@ -77,6 +80,8 @@ type EvaluatableNode =
     | TypeDeclarationNode
     | SetDeclarationNode
     | ClassDeclarationNode
+    | MethodDeclarationNode
+    | SuperCallNode
     | DebuggerNode
     | BinaryExpressionNode
     | UnaryExpressionNode
@@ -121,6 +126,8 @@ function isEvaluatableNode(node: ASTNode): node is EvaluatableNode {
         case "TypeDeclaration":
         case "SetDeclaration":
         case "ClassDeclaration":
+        case "MethodDeclaration":
+        case "SuperCall":
         case "Debugger":
         case "BinaryExpression":
         case "UnaryExpression":
@@ -222,7 +229,10 @@ import {
     PointerTypeInfo,
     TypeInfo,
     ParameterMode,
+    ParameterInfo,
     TypeValidator,
+    ClassTypeInfo,
+    ClassMethodInfo,
 } from "../types";
 
 import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
@@ -255,6 +265,8 @@ export class Evaluator {
     private heap: Heap;
     private strictMode: boolean;
     private namespaceImports: Map<string, ImportInfo> = new Map();
+    private classDefinitions: Map<string, ClassTypeInfo> = new Map();
+    private classMethodBodies: Map<string, Map<string, RuntimeMethodInfo>> = new Map();
 
     constructor(io: IOInterface, strictMode: boolean = false) {
         this.io = io;
@@ -458,6 +470,14 @@ export class Evaluator {
                     node.column,
                 );
 
+            case "MethodDeclaration":
+                return okAsync(undefined);
+
+            case "SuperCall":
+                return ResultAsync.fromPromise(this.evaluateSuperCall(node), (error: unknown) =>
+                    toRuntimeError(error, node.line, node.column),
+                ).map(() => undefined);
+
             case "Debugger":
                 return ResultAsync.fromPromise(this.evaluateDebugger(node), (error: unknown) =>
                     toRuntimeError(error, node.line, node.column),
@@ -498,7 +518,10 @@ export class Evaluator {
                 );
 
             case "NewExpression":
-                return this.trySync(() => this.evaluateNewExpression(node), node.line, node.column);
+                return ResultAsync.fromPromise(
+                    this.evaluateNewExpressionAsync(node),
+                    (error: unknown) => toRuntimeError(error, node.line, node.column),
+                );
 
             case "TypeCast":
                 return ResultAsync.fromPromise(this.evaluateTypeCast(node), (error: unknown) =>
@@ -1094,6 +1117,7 @@ export class Evaluator {
         await this.evaluateCallExpression({
             type: "CallExpression",
             name: node.name,
+            namespace: node.namespace,
             arguments: node.arguments,
             line: node.line,
             column: node.column,
@@ -1304,14 +1328,89 @@ export class Evaluator {
     }
 
     private evaluateClassDeclaration(node: ClassDeclarationNode): void {
-        const classDef = {
+        const fields: Record<string, TypeInfo> = {};
+        const fieldVisibility: Record<string, "PUBLIC" | "PRIVATE"> = {};
+
+        for (const field of node.fields) {
+            fields[field.name] = field.dataType;
+            fieldVisibility[field.name] = field.visibility;
+        }
+
+        const methods: Record<string, ClassMethodInfo> = {};
+        const methodBodies: Map<string, RuntimeMethodInfo> = new Map();
+
+        for (const method of node.methods) {
+            const params: ParameterInfo[] = method.parameters.map((p) => ({
+                name: p.name,
+                type: p.dataType,
+                mode: p.mode,
+            }));
+            methods[method.name] = {
+                name: method.name,
+                visibility: method.visibility,
+                parameters: params,
+                returnType: method.returnType,
+                body: [],
+            };
+            methodBodies.set(method.name, {
+                name: method.name,
+                visibility: method.visibility,
+                parameters: method.parameters,
+                returnType: method.returnType,
+                body: method.body,
+            });
+        }
+
+        const classDef: ClassTypeInfo = {
+            kind: "CLASS",
             name: node.name,
             inherits: node.inherits,
-            fields: node.fields,
-            methods: node.methods,
+            fields,
+            fieldVisibility,
+            methods,
         };
 
-        this.environment.define(node.name, PseudocodeType.STRING, JSON.stringify(classDef), true);
+        this.classDefinitions.set(node.name, classDef);
+        this.classMethodBodies.set(node.name, methodBodies);
+    }
+
+    private resolveClassDefinition(className: string): ClassTypeInfo | undefined {
+        return this.classDefinitions.get(className);
+    }
+
+    private resolveFullClassDefinition(className: string): ClassTypeInfo | undefined {
+        const classDef = this.classDefinitions.get(className);
+        if (!classDef) return undefined;
+
+        if (!classDef.inherits) return classDef;
+
+        const parentDef = this.resolveFullClassDefinition(classDef.inherits);
+        if (!parentDef) return classDef;
+
+        const mergedFields: Record<string, TypeInfo> = { ...parentDef.fields, ...classDef.fields };
+        const mergedFieldVisibility: Record<string, "PUBLIC" | "PRIVATE"> = {
+            ...parentDef.fieldVisibility,
+            ...classDef.fieldVisibility,
+        };
+        const mergedMethods: Record<string, ClassMethodInfo> = {
+            ...parentDef.methods,
+            ...classDef.methods,
+        };
+
+        return {
+            ...classDef,
+            fields: mergedFields,
+            fieldVisibility: mergedFieldVisibility,
+            methods: mergedMethods,
+        };
+    }
+
+    private buildDefaultObjectValue(classDef: ClassTypeInfo): Record<string, unknown> {
+        const result: Record<string, unknown> = {};
+        for (const [fieldName, fieldType] of Object.entries(classDef.fields)) {
+            result[fieldName] = this.heap.getDefaultValue(fieldType);
+        }
+        return result;
     }
 
     private async evaluateBinaryExpression(node: BinaryExpressionNode): Promise<unknown> {
@@ -1441,10 +1540,108 @@ export class Evaluator {
         return result.value.value;
     }
 
+    private async tryObjectMethodCall(
+        node: CallExpressionNode,
+    ): Promise<{ handled: boolean; value?: unknown }> {
+        if (!node.namespace) return { handled: false };
+
+        if (!this.environment.has(node.namespace)) {
+            return { handled: false };
+        }
+
+        const objValue = this.environment.get(node.namespace);
+        if (typeof objValue !== "number") {
+            return { handled: false };
+        }
+
+        const heapResult = this.heap.read(objValue);
+        if (heapResult.isErr()) {
+            return { handled: false };
+        }
+
+        const objType = heapResult.value.type;
+        if (typeof objType !== "object" || objType === null || !("name" in objType)) {
+            return { handled: false };
+        }
+
+        const className = "name" in objType ? objType.name : undefined;
+        if (!className) return { handled: false };
+        const fullClassDef = this.resolveFullClassDefinition(className);
+        if (!fullClassDef) return { handled: false };
+
+        const method = fullClassDef.methods[node.name];
+        if (!method) {
+            throw new RuntimeError(
+                `Method '${node.name}' not found on class '${className}'`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const selfAddress = objValue;
+        const routineEnvironment = this.environment.createChild();
+        routineEnvironment.define("SELF", PseudocodeType.INTEGER, selfAddress, true);
+
+        this.bindObjectFieldsToEnvironment(selfAddress, fullClassDef, routineEnvironment);
+
+        for (let i = 0; i < method.parameters.length; i++) {
+            const param = method.parameters[i];
+            const argNode = node.arguments[i];
+            const arg = await this.evaluate(argNode);
+            routineEnvironment.define(param.name, param.type, arg, false);
+        }
+
+        const previousContext = this.context;
+        const previousEnvironment = this.environment;
+        this.context = new ExecutionContext(routineEnvironment);
+        this.environment = routineEnvironment;
+
+        let result: unknown = undefined;
+
+        try {
+            const methodBody = this.findMethodBody(className, node.name);
+            if (methodBody) {
+                for (const statement of methodBody.body) {
+                    await this.executeStatement(statement);
+                    if (this.context.shouldReturnFromRoutine()) {
+                        result = this.context.getReturnValue();
+                        break;
+                    }
+                }
+            }
+        } finally {
+            this.context = previousContext;
+            this.environment = previousEnvironment;
+            routineEnvironment.disposeScope();
+        }
+
+        return { handled: true, value: result };
+    }
+
+    private findMethodBody(className: string, methodName: string): RuntimeMethodInfo | undefined {
+        const methodBodies = this.classMethodBodies.get(className);
+        if (methodBodies) {
+            const method = methodBodies.get(methodName);
+            if (method) return method;
+        }
+
+        const classDef = this.classDefinitions.get(className);
+        if (classDef?.inherits) {
+            return this.findMethodBody(classDef.inherits, methodName);
+        }
+
+        return undefined;
+    }
+
     private async evaluateCallExpression(node: CallExpressionNode): Promise<unknown> {
         const routineName = node.name;
 
         if (node.namespace) {
+            const methodResult = await this.tryObjectMethodCall(node);
+            if (methodResult.handled) {
+                return methodResult.value;
+            }
+
             const nsInfo = this.namespaceImports.get(node.namespace);
             if (!nsInfo) {
                 throw new RuntimeError(
@@ -1600,6 +1797,24 @@ export class Evaluator {
             if (typeof typeInfo === "object" && typeInfo !== null && "fields" in typeInfo) {
                 return typeInfo;
             }
+
+            if (typeInfo === PseudocodeType.INTEGER && this.environment.has(expression.name)) {
+                const varValue = this.environment.get(expression.name);
+                if (typeof varValue === "number") {
+                    const heapResult = this.heap.read(varValue);
+                    if (heapResult.isOk()) {
+                        const objType = heapResult.value.type;
+                        if (
+                            typeof objType === "object" &&
+                            objType !== null &&
+                            "fields" in objType
+                        ) {
+                            return objType as UserDefinedTypeInfo;
+                        }
+                    }
+                }
+            }
+
             return undefined;
         }
 
@@ -1719,20 +1934,214 @@ export class Evaluator {
     }
 
     private evaluateNewExpression(node: NewExpressionNode): unknown {
-        const resolvedType = this.resolveType(
-            { name: node.className, fields: {} },
-            node.line,
-            node.column,
-        );
+        const classDef = this.resolveFullClassDefinition(node.className);
 
-        if (typeof resolvedType === "object" && "fields" in resolvedType) {
-            const defaultValue = this.buildDefaultUserDefinedValue(resolvedType.fields);
-            const address = this.heap.allocate(defaultValue, resolvedType);
+        if (!classDef) {
+            const resolvedType = this.resolveType(
+                { name: node.className, fields: {} },
+                node.line,
+                node.column,
+            );
+
+            if (typeof resolvedType === "object" && "fields" in resolvedType) {
+                const defaultValue = this.buildDefaultUserDefinedValue(resolvedType.fields);
+                const address = this.heap.allocate(defaultValue, resolvedType);
+                return address;
+            }
+
+            const address = this.heap.allocate({}, { name: node.className, fields: {} });
             return address;
         }
 
-        const address = this.heap.allocate({}, { name: node.className, fields: {} });
+        const objectValue = this.buildDefaultObjectValue(classDef);
+        const objectTypeInfo: UserDefinedTypeInfo = {
+            name: classDef.name,
+            fields: classDef.fields,
+        };
+        const address = this.heap.allocate(objectValue, objectTypeInfo);
+
         return address;
+    }
+
+    private async evaluateNewExpressionAsync(node: NewExpressionNode): Promise<unknown> {
+        const classDef = this.resolveFullClassDefinition(node.className);
+
+        if (!classDef) {
+            return this.evaluateNewExpression(node);
+        }
+
+        return this.createAndConstructObject(node.className, node.arguments);
+    }
+
+    private async createAndConstructObject(
+        className: string,
+        args: ExpressionNode[],
+    ): Promise<number> {
+        const classDef = this.resolveFullClassDefinition(className);
+        if (!classDef) {
+            throw new RuntimeError(`Unknown class '${className}'`);
+        }
+
+        const objectValue = this.buildDefaultObjectValue(classDef);
+        const objectTypeInfo: UserDefinedTypeInfo = {
+            name: classDef.name,
+            fields: classDef.fields,
+        };
+        const address = this.heap.allocate(objectValue, objectTypeInfo);
+
+        await this.invokeConstructor(className, address, args);
+
+        return address;
+    }
+
+    private async invokeConstructor(
+        className: string,
+        objectAddress: number,
+        args: ExpressionNode[],
+    ): Promise<void> {
+        const methodBodies = this.classMethodBodies.get(className);
+        if (!methodBodies) return;
+
+        const constructor = methodBodies.get("NEW");
+        if (!constructor) return;
+
+        const fullClassDef = this.resolveFullClassDefinition(className);
+        const routineEnvironment = this.environment.createChild();
+
+        routineEnvironment.define("SELF", PseudocodeType.INTEGER, objectAddress, true);
+
+        if (fullClassDef) {
+            this.bindObjectFieldsToEnvironment(objectAddress, fullClassDef, routineEnvironment);
+        }
+
+        for (let i = 0; i < constructor.parameters.length; i++) {
+            const param = constructor.parameters[i];
+            const argNode = args[i];
+            const arg = await this.evaluate(argNode);
+            routineEnvironment.define(param.name, param.dataType, arg, false);
+        }
+
+        const previousContext = this.context;
+        const previousEnvironment = this.environment;
+        this.context = new ExecutionContext(routineEnvironment);
+        this.environment = routineEnvironment;
+
+        try {
+            for (const statement of constructor.body) {
+                await this.executeStatement(statement);
+                if (this.context.shouldReturnFromRoutine()) {
+                    break;
+                }
+            }
+        } finally {
+            this.context = previousContext;
+            this.environment = previousEnvironment;
+            routineEnvironment.disposeScope();
+        }
+    }
+
+    private bindObjectFieldsToEnvironment(
+        objectAddress: number,
+        classDef: ClassTypeInfo,
+        env: Environment,
+    ): void {
+        const heapResult = this.heap.read(objectAddress);
+        if (heapResult.isErr()) return;
+
+        const objectValue = heapResult.value.value;
+        if (typeof objectValue !== "object" || objectValue === null) return;
+
+        for (const [fieldName, fieldType] of Object.entries(classDef.fields)) {
+            const fieldAddress = this.heap.readFieldAddress(objectAddress, fieldName);
+            if (fieldAddress.isErr()) continue;
+            env.defineByRef(fieldName, fieldType, fieldAddress.value);
+        }
+    }
+
+    private async evaluateSuperCall(node: SuperCallNode): Promise<void> {
+        const selfAddress = this.environment.get("SELF");
+        if (typeof selfAddress !== "number") {
+            throw new RuntimeError(
+                "SUPER can only be used inside a method",
+                node.line,
+                node.column,
+            );
+        }
+
+        const selfHeapObj = this.heap.read(selfAddress);
+        if (selfHeapObj.isErr()) {
+            throw selfHeapObj.error;
+        }
+        const selfType = selfHeapObj.value.type;
+        if (typeof selfType !== "object" || !("name" in selfType)) {
+            throw new RuntimeError(
+                "SELF does not refer to a class instance",
+                node.line,
+                node.column,
+            );
+        }
+
+        const className = selfType.name;
+        const classDef = this.classDefinitions.get(className);
+        if (!classDef || !classDef.inherits) {
+            throw new RuntimeError(
+                `Class '${className}' does not inherit from any class`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const parentClassName = classDef.inherits;
+        const parentMethodBodies = this.classMethodBodies.get(parentClassName);
+        if (!parentMethodBodies) {
+            throw new RuntimeError(
+                `Parent class '${parentClassName}' not found`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const method = parentMethodBodies.get(node.methodName);
+        if (!method) {
+            throw new RuntimeError(
+                `Method '${node.methodName}' not found in parent class '${parentClassName}'`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const routineEnvironment = this.environment.createChild();
+        routineEnvironment.define("SELF", PseudocodeType.INTEGER, selfAddress, true);
+
+        const fullParentClassDef = this.resolveFullClassDefinition(parentClassName);
+        if (fullParentClassDef) {
+            this.bindObjectFieldsToEnvironment(selfAddress, fullParentClassDef, routineEnvironment);
+        }
+
+        for (let i = 0; i < method.parameters.length; i++) {
+            const param = method.parameters[i];
+            const argNode = node.arguments[i];
+            const arg = await this.evaluate(argNode);
+            routineEnvironment.define(param.name, param.dataType, arg, false);
+        }
+
+        const previousContext = this.context;
+        const previousEnvironment = this.environment;
+        this.context = new ExecutionContext(routineEnvironment);
+        this.environment = routineEnvironment;
+
+        try {
+            for (const statement of method.body) {
+                await this.executeStatement(statement);
+                if (this.context.shouldReturnFromRoutine()) {
+                    break;
+                }
+            }
+        } finally {
+            this.context = previousContext;
+            this.environment = previousEnvironment;
+            routineEnvironment.disposeScope();
+        }
     }
 
     private async evaluateTypeCast(node: TypeCastNode): Promise<unknown> {
@@ -1774,7 +2183,25 @@ export class Evaluator {
     private async resolveTargetAddress(target: ExpressionNode): Promise<number> {
         if (isIdentifierNode(target)) {
             const atom = this.environment.getAtom(target.name);
-            return atom.getAddress();
+            const varAddress = atom.getAddress();
+
+            const heapResult = this.heap.read(varAddress);
+            if (heapResult.isOk()) {
+                const varValue = heapResult.value.value;
+                if (typeof varValue === "number") {
+                    const refResult = this.heap.read(varValue);
+                    if (
+                        refResult.isOk() &&
+                        typeof refResult.value.value === "object" &&
+                        refResult.value.value !== null &&
+                        !Array.isArray(refResult.value.value)
+                    ) {
+                        return varValue;
+                    }
+                }
+            }
+
+            return varAddress;
         }
 
         if (isArrayAccessNode(target)) {

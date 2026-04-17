@@ -36,6 +36,7 @@ import {
     FieldDeclarationNode,
     ClassDeclarationNode,
     MethodDeclarationNode,
+    SuperCallNode,
     BinaryExpressionNode,
     UnaryExpressionNode,
     IdentifierNode,
@@ -228,6 +229,10 @@ export class Parser {
                 return this.classDeclaration();
             }
 
+            if (this.match(TokenType.SUPER)) {
+                return this.superCallStatement();
+            }
+
             if (this.match(TokenType.DISPOSE)) {
                 return this.disposeStatement();
             }
@@ -378,6 +383,7 @@ export class Parser {
             case TokenType.SET:
             case TokenType.CLASS:
             case TokenType.INHERITS:
+            case TokenType.SUPER:
             case TokenType.PUBLIC:
             case TokenType.PRIVATE:
             case TokenType.NEW:
@@ -1217,6 +1223,7 @@ export class Parser {
                 type: "FieldDeclaration",
                 name: fieldName,
                 dataType,
+                visibility: "PUBLIC",
                 line: fieldLine,
                 column: fieldColumn,
             });
@@ -1291,13 +1298,17 @@ export class Parser {
             if (this.match(TokenType.PUBLIC) || this.match(TokenType.PRIVATE)) {
                 const visibility = this.previous().value === "PUBLIC" ? "PUBLIC" : "PRIVATE";
 
-                if (this.check(TokenType.IDENTIFIER) && this.peek().value !== "DECLARE") {
-                    // Method declaration
+                if (
+                    this.check(TokenType.PROCEDURE) ||
+                    this.check(TokenType.FUNCTION) ||
+                    (this.check(TokenType.IDENTIFIER) && this.isMethodDeclaration())
+                ) {
                     const method = this.methodDeclaration(visibility);
                     methods.push(method);
                 } else {
-                    // Field declaration
-                    this.consume(TokenType.DECLARE, "Expected 'DECLARE' for field declaration");
+                    if (this.check(TokenType.DECLARE)) {
+                        this.advance();
+                    }
                     const fieldNameToken = this.consume(
                         TokenType.IDENTIFIER,
                         "Expected field name",
@@ -1315,19 +1326,23 @@ export class Parser {
                         type: "FieldDeclaration",
                         name: fieldName,
                         dataType,
+                        visibility,
                         line: fieldNameToken.line,
                         column: fieldNameToken.column,
                     });
                 }
             } else {
-                // Default visibility is PRIVATE
-                if (this.check(TokenType.IDENTIFIER) && this.peek().value !== "DECLARE") {
-                    // Method declaration
+                if (
+                    this.check(TokenType.PROCEDURE) ||
+                    this.check(TokenType.FUNCTION) ||
+                    (this.check(TokenType.IDENTIFIER) && this.isMethodDeclaration())
+                ) {
                     const method = this.methodDeclaration("PRIVATE");
                     methods.push(method);
                 } else {
-                    // Field declaration
-                    this.consume(TokenType.DECLARE, "Expected 'DECLARE' for field declaration");
+                    if (this.check(TokenType.DECLARE)) {
+                        this.advance();
+                    }
                     const fieldNameToken = this.consume(
                         TokenType.IDENTIFIER,
                         "Expected field name",
@@ -1345,6 +1360,7 @@ export class Parser {
                         type: "FieldDeclaration",
                         name: fieldName,
                         dataType,
+                        visibility: "PRIVATE",
                         line: fieldNameToken.line,
                         column: fieldNameToken.column,
                     });
@@ -1369,12 +1385,30 @@ export class Parser {
     /**
      * Parse a method declaration within a class
      */
+    private isMethodDeclaration(): boolean {
+        const current = this.peek();
+        if (current.type !== TokenType.IDENTIFIER) return false;
+        const next = this.peekOffset(1);
+        return next.type === TokenType.LEFT_PAREN;
+    }
+
     private methodDeclaration(visibility: "PUBLIC" | "PRIVATE"): MethodDeclarationNode {
         const line = this.peek().line;
         const column = this.peek().column;
 
-        const nameToken = this.consume(TokenType.IDENTIFIER, "Expected method name");
-        const name = this.tokenString(nameToken, "Expected method name to be text");
+        const isFunction = this.match(TokenType.FUNCTION);
+        if (!isFunction && !this.match(TokenType.PROCEDURE)) {
+            // Shorthand method declaration without PROCEDURE/FUNCTION keyword
+        }
+
+        let name: string;
+        if (this.check(TokenType.NEW)) {
+            name = "NEW";
+            this.advance();
+        } else {
+            const nameToken = this.consume(TokenType.IDENTIFIER, "Expected method name");
+            name = this.tokenString(nameToken, "Expected method name to be text");
+        }
 
         this.consume(TokenType.LEFT_PAREN, "Expected '(' after method name");
         const parameters = this.parseParameters();
@@ -1393,15 +1427,37 @@ export class Parser {
         this.consumeNewline();
 
         const body: StatementNode[] = [];
-        while (
-            !this.check(TokenType.ENDCLASS) &&
-            !this.check(TokenType.PUBLIC) &&
-            !this.check(TokenType.PRIVATE) &&
-            !this.isAtEnd()
-        ) {
-            const stmt = this.statement();
-            if (stmt) {
-                body.push(stmt);
+        if (isFunction) {
+            while (
+                !this.check(TokenType.ENDFUNCTION) &&
+                !this.check(TokenType.ENDCLASS) &&
+                !this.isAtEnd()
+            ) {
+                const stmt = this.statement();
+                if (stmt) {
+                    body.push(stmt);
+                }
+            }
+            if (this.check(TokenType.ENDFUNCTION)) {
+                this.advance();
+                this.consumeNewline();
+            }
+        } else {
+            while (
+                !this.check(TokenType.ENDPROCEDURE) &&
+                !this.check(TokenType.ENDCLASS) &&
+                !this.check(TokenType.PUBLIC) &&
+                !this.check(TokenType.PRIVATE) &&
+                !this.isAtEnd()
+            ) {
+                const stmt = this.statement();
+                if (stmt) {
+                    body.push(stmt);
+                }
+            }
+            if (this.check(TokenType.ENDPROCEDURE)) {
+                this.advance();
+                this.consumeNewline();
             }
         }
 
@@ -1412,6 +1468,45 @@ export class Parser {
             parameters,
             returnType,
             body,
+            line,
+            column,
+        };
+    }
+
+    private superCallStatement(): SuperCallNode {
+        const line = this.previous().line;
+        const column = this.previous().column;
+
+        this.consume(TokenType.DOT, "Expected '.' after SUPER");
+
+        let methodName: string;
+        if (this.check(TokenType.NEW)) {
+            methodName = "NEW";
+            this.advance();
+        } else {
+            const methodToken = this.consume(
+                TokenType.IDENTIFIER,
+                "Expected method name after SUPER.",
+            );
+            methodName = this.tokenString(methodToken, "Expected method name after SUPER.");
+        }
+
+        this.consume(TokenType.LEFT_PAREN, "Expected '(' after SUPER method name");
+        const args: ExpressionNode[] = [];
+
+        if (!this.check(TokenType.RIGHT_PAREN)) {
+            do {
+                args.push(this.expression());
+            } while (this.match(TokenType.COMMA));
+        }
+
+        this.consume(TokenType.RIGHT_PAREN, "Expected ')' after SUPER method arguments");
+        this.consumeNewline();
+
+        return {
+            type: "SuperCall",
+            methodName,
+            arguments: args,
             line,
             column,
         };
@@ -1458,6 +1553,7 @@ export class Parser {
             const callStatement: CallStatementNode = {
                 type: "CallStatement",
                 name: expr.name,
+                namespace: expr.namespace,
                 arguments: expr.arguments,
                 line: expr.line,
                 column: expr.column,

@@ -149,6 +149,7 @@ export interface FunctionDeclarationNode extends StatementNode {
 export interface CallStatementNode extends StatementNode {
     type: "CallStatement";
     name: string;
+    namespace?: string;
     arguments: ExpressionNode[];
 }
 
@@ -295,6 +296,7 @@ export interface FieldDeclarationNode extends StatementNode {
     type: "FieldDeclaration";
     name: string;
     dataType: TypeInfo;
+    visibility: "PUBLIC" | "PRIVATE";
 }
 
 /**
@@ -303,16 +305,27 @@ export interface FieldDeclarationNode extends StatementNode {
 export interface ClassDeclarationNode extends StatementNode {
     type: "ClassDeclaration";
     name: string;
-    inherits?: string; // Parent class name
+    inherits?: string;
     fields: FieldDeclarationNode[];
     methods: MethodDeclarationNode[];
 }
 
-/**
- * Method declaration within a class
- */
 export interface MethodDeclarationNode extends StatementNode {
     type: "MethodDeclaration";
+    name: string;
+    visibility: "PUBLIC" | "PRIVATE";
+    parameters: ParameterNode[];
+    returnType?: TypeInfo;
+    body: StatementNode[];
+}
+
+export interface SuperCallNode extends StatementNode {
+    type: "SuperCall";
+    methodName: string;
+    arguments: ExpressionNode[];
+}
+
+export interface RuntimeMethodInfo {
     name: string;
     visibility: "PUBLIC" | "PRIVATE";
     parameters: ParameterNode[];
@@ -494,6 +507,7 @@ export interface ASTVisitor<T> {
     visitFieldDeclaration(node: FieldDeclarationNode): T;
     visitClassDeclaration(node: ClassDeclarationNode): T;
     visitMethodDeclaration(node: MethodDeclarationNode): T;
+    visitSuperCall(node: SuperCallNode): T;
     visitBinaryExpression(node: BinaryExpressionNode): T;
     visitUnaryExpression(node: UnaryExpressionNode): T;
     visitIdentifier(node: IdentifierNode): T;
@@ -582,6 +596,8 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
                 return this.visitClassDeclaration(node as ClassDeclarationNode);
             case "MethodDeclaration":
                 return this.visitMethodDeclaration(node as MethodDeclarationNode);
+            case "SuperCall":
+                return this.visitSuperCall(node as SuperCallNode);
             case "BinaryExpression":
                 return this.visitBinaryExpression(node as BinaryExpressionNode);
             case "UnaryExpression":
@@ -650,6 +666,7 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
     abstract visitFieldDeclaration(node: FieldDeclarationNode): T;
     abstract visitClassDeclaration(node: ClassDeclarationNode): T;
     abstract visitMethodDeclaration(node: MethodDeclarationNode): T;
+    abstract visitSuperCall(node: SuperCallNode): T;
     abstract visitBinaryExpression(node: BinaryExpressionNode): T;
     abstract visitUnaryExpression(node: UnaryExpressionNode): T;
     abstract visitIdentifier(node: IdentifierNode): T;
