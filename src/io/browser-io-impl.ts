@@ -126,7 +126,7 @@ export class BrowserIOImpl implements IOInterface {
     }
 
     error(message: string, line?: number, column?: number): void {
-        let output = `Error: ${message}`;
+        let output = message;
         if (line !== undefined) {
             output += ` at line ${line}`;
         }

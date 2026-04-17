@@ -38,6 +38,8 @@ export type {
     UserDefinedTypeInfo,
     EnumTypeInfo,
     SetTypeInfo,
+    PointerTypeInfo,
+    InferredTypeInfo,
 } from "./types";
 
 export {

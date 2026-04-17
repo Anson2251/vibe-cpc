@@ -29,6 +29,12 @@ export function toSyntaxError(error: unknown, line?: number, column?: number): S
 
 export function toRuntimeError(error: unknown, line?: number, column?: number): RuntimeError {
     if (error instanceof RuntimeError) {
+        if (error.line === undefined && line !== undefined) {
+            return new RuntimeError(error.message, line, error.column ?? column);
+        }
+        if (error.column === undefined && column !== undefined && error.line !== undefined) {
+            return new RuntimeError(error.message, error.line, column);
+        }
         return error;
     }
     if (error instanceof Error) {

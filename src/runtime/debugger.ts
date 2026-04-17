@@ -1,7 +1,7 @@
 import { type TypeInfo, VariableInfo } from "../types";
 import { z } from "zod";
 
-export type DebugPauseReason = "debugger-statement" | "step" | "breakpoint";
+export type DebugPauseReason = "debugger-statement" | "step" | "breakpoint" | "error";
 
 export interface DebugLocation {
     line?: number;
@@ -35,6 +35,7 @@ export interface DebugSnapshot {
     scopes: DebugScope[];
     callStack: DebugFrame[];
     heapSnapshot?: Map<number, { value: unknown; type: TypeInfo; refCount: number }>;
+    error?: { message: string; line?: number; column?: number };
 }
 
 export type DebugBreakpointCondition = (snapshot: DebugSnapshot) => boolean;
@@ -504,6 +505,11 @@ export class DebuggerController {
     }
 
     async maybePause(snapshot: DebugSnapshot): Promise<void> {
+        if (snapshot.reason === "error") {
+            await this.pause(snapshot);
+            return;
+        }
+
         if (this.shouldPauseForBreakpoint(snapshot)) {
             const breakpointSnapshot: DebugSnapshot = {
                 ...snapshot,
@@ -602,21 +608,7 @@ export class DebuggerController {
 
     variablesToDebugWithHeap(variables: VariableInfo[], heapSnapshot: Map<number, { value: unknown; type: TypeInfo; refCount: number }>): DebugVariable[] {
         return variables.map((variable) => {
-            let displayValue = variable.value;
-
-            if (
-                typeof variable.type === "object" &&
-                variable.type !== null &&
-                "kind" in variable.type &&
-                variable.type.kind === "POINTER" &&
-                typeof variable.value === "number" &&
-                variable.value !== 0
-            ) {
-                const heapObj = heapSnapshot.get(variable.value);
-                if (heapObj) {
-                    displayValue = { address: variable.value, dereferenced: heapObj.value };
-                }
-            }
+            const displayValue = this.resolveHeapValue(variable.value, variable.type, heapSnapshot, new Set());
 
             return {
                 name: variable.name,
@@ -626,6 +618,82 @@ export class DebuggerController {
                 isConstant: variable.isConstant,
             };
         });
+    }
+
+    private resolveHeapValue(
+        value: unknown,
+        type: TypeInfo,
+        heapSnapshot: Map<number, { value: unknown; type: TypeInfo; refCount: number }>,
+        visited: Set<number>,
+    ): unknown {
+        if (value === null || value === undefined) {
+            return value;
+        }
+
+        if (typeof type === "string") {
+            return value;
+        }
+
+        if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
+            if (typeof value === "number" && value === 0) {
+                return 0;
+            }
+            if (typeof value === "number" && value !== 0) {
+                const heapObj = heapSnapshot.get(value);
+                if (heapObj) {
+                    const derefValue = visited.has(value)
+                        ? "[Circular]"
+                        : (visited.add(value), this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited));
+                    return { address: value, dereferenced: derefValue };
+                }
+            }
+            return value;
+        }
+
+        if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
+            return value;
+        }
+
+        if (typeof type === "object" && "kind" in type && type.kind === "SET") {
+            if (value instanceof Set) {
+                return Array.from(value);
+            }
+            return value;
+        }
+
+        if (typeof type === "object" && "elementType" in type && Array.isArray(value)) {
+            return value.map((element) => {
+                if (typeof element === "number" && heapSnapshot.has(element)) {
+                    if (visited.has(element)) return "[Circular]";
+                    visited.add(element);
+                    const heapObj = heapSnapshot.get(element)!;
+                    return this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited);
+                }
+                return element;
+            });
+        }
+
+        if (typeof type === "object" && "fields" in type && typeof value === "object" && value !== null && !Array.isArray(value)) {
+            const record = value as Record<string, unknown>;
+            const resolved: Record<string, unknown> = {};
+            for (const [fieldName, fieldType] of Object.entries(type.fields)) {
+                const fieldValue = record[fieldName];
+                if (typeof fieldValue === "number" && heapSnapshot.has(fieldValue)) {
+                    if (visited.has(fieldValue)) {
+                        resolved[fieldName] = "[Circular]";
+                        continue;
+                    }
+                    visited.add(fieldValue);
+                    const heapObj = heapSnapshot.get(fieldValue)!;
+                    resolved[fieldName] = this.resolveHeapValue(heapObj.value, heapObj.type, heapSnapshot, visited);
+                } else {
+                    resolved[fieldName] = fieldValue;
+                }
+            }
+            return resolved;
+        }
+
+        return value;
     }
 
     private emit(event: DebugEvent): void {

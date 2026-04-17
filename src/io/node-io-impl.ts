@@ -163,7 +163,7 @@ export class NodeIOImpl implements IOInterface {
 
     // Error handling
     error(message: string, line?: number, column?: number): void {
-        let errorMessage = `Error: ${message}`;
+        let errorMessage = message;
 
         if (line !== undefined) {
             errorMessage += ` at line ${line}`;

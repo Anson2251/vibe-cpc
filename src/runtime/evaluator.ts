@@ -226,7 +226,7 @@ import { RuntimeAsyncResult, toRuntimeError } from "../result";
 import { Environment, ExecutionContext, RoutineInfo } from "./environment";
 import { IOInterface } from "../io/io-interface";
 import { VariableAtomFactory, VariableAtom } from "./variable-atoms";
-import { DebuggerController, DebugSnapshot } from "./debugger";
+import { DebuggerController, DebugSnapshot, type DebugPauseReason } from "./debugger";
 import { Heap, NULL_POINTER } from "./heap";
 
 export class Evaluator {
@@ -526,7 +526,19 @@ export class Evaluator {
     }
 
     private executeStatementR(statement: StatementNode): RuntimeAsyncResult<unknown> {
-        return this.pauseForStepBeforeStatementR(statement).andThen(() => this.evaluateR(statement));
+        return this.pauseForStepBeforeStatementR(statement).andThen(() =>
+            this.evaluateR(statement).orElse((error: RuntimeError) => {
+                if (this.debuggerController && error instanceof RuntimeError) {
+                    const snapshot = this.buildDebugSnapshot("error", error.line ?? statement.line, error.column ?? statement.column);
+                    snapshot.error = { message: error.message, line: error.line, column: error.column };
+                    return ResultAsync.fromPromise(
+                        this.debuggerController.maybePause(snapshot),
+                        () => error,
+                    ).andThen(() => errAsync(error));
+                }
+                return errAsync(error);
+            }),
+        );
     }
 
     private async executeStatement(statement: StatementNode): Promise<unknown> {
@@ -550,7 +562,7 @@ export class Evaluator {
     }
 
     private buildDebugSnapshot(
-        reason: "debugger-statement" | "step",
+        reason: DebugPauseReason,
         line?: number,
         column?: number,
     ): DebugSnapshot {
@@ -561,9 +573,9 @@ export class Evaluator {
 
         const scopes = this.debuggerController
             ? this.environment.getDebugScopes().map((scope, index) => ({
-                  scopeName: index === 0 ? "local" : "global",
-                  variables: this.debuggerController!.variablesToDebugWithHeap(scope.variables, heapSnapshot),
-              }))
+                scopeName: index === 0 ? "local" : "global",
+                variables: this.debuggerController!.variablesToDebugWithHeap(scope.variables, heapSnapshot),
+            }))
             : [];
 
         return {
