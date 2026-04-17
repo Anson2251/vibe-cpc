@@ -62,6 +62,8 @@ export enum TokenType {
     EOF = "EOF",
     IN = "IN",
     FROM = "FROM",
+    IMPORT = "IMPORT",
+    EXPORT = "EXPORT",
 
     // Data types
     INTEGER = "INTEGER",
@@ -174,6 +176,8 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
     EOF: TokenType.EOF,
     IN: TokenType.IN,
     FROM: TokenType.FROM,
+    IMPORT: TokenType.IMPORT,
+    EXPORT: TokenType.EXPORT,
     INTEGER: TokenType.INTEGER,
     REAL: TokenType.REAL,
     CHAR: TokenType.CHAR,

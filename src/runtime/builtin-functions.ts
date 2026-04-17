@@ -242,4 +242,15 @@ export const builtInFunctions: Record<string, Omit<RoutineInfo, "name">> = {
     TODAY: defineBuiltIn([], PseudocodeType.DATE, () => new Date()),
 };
 
+export const EXTENDED_BUILTIN_NAMES: ReadonlySet<string> = new Set([
+    "POSITION",
+    "ROUND",
+    "ABS",
+    "SQRT",
+    "REPLACE",
+    "TRIM",
+    "POWER",
+    "TYPEOF",
+]);
+
 export default builtInFunctions;

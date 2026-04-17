@@ -176,6 +176,21 @@ export interface DebuggerNode extends StatementNode {
     type: "Debugger";
 }
 
+export interface ImportStatementNode extends StatementNode {
+    type: "ImportStatement";
+    filePath: string;
+}
+
+export interface ExportStatementNode extends StatementNode {
+    type: "ExportStatement";
+    names: string[];
+}
+
+export interface ImportExpressionNode extends ExpressionNode {
+    type: "ImportExpression";
+    filePath: string;
+}
+
 /**
  * Dispose statement (free pointer memory)
  */
@@ -358,6 +373,7 @@ export interface ArrayAccessNode extends ExpressionNode {
 export interface CallExpressionNode extends ExpressionNode {
     type: "CallExpression";
     name: string;
+    namespace?: string;
     arguments: ExpressionNode[];
 }
 
@@ -461,6 +477,9 @@ export interface ASTVisitor<T> {
     visitInput(node: InputNode): T;
     visitOutput(node: OutputNode): T;
     visitDebugger(node: DebuggerNode): T;
+    visitImportStatement(node: ImportStatementNode): T;
+    visitImportExpression(node: ImportExpressionNode): T;
+    visitExportStatement(node: ExportStatementNode): T;
     visitDisposeStatement(node: DisposeStatementNode): T;
     visitReturn(node: ReturnNode): T;
     visitOpenFile(node: OpenFileNode): T;
@@ -529,6 +548,12 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
                 return this.visitOutput(node as OutputNode);
             case "Debugger":
                 return this.visitDebugger(node as DebuggerNode);
+            case "ImportStatement":
+                return this.visitImportStatement(node as ImportStatementNode);
+            case "ImportExpression":
+                return this.visitImportExpression(node as ImportExpressionNode);
+            case "ExportStatement":
+                return this.visitExportStatement(node as ExportStatementNode);
             case "DisposeStatement":
                 return this.visitDisposeStatement(node as DisposeStatementNode);
             case "Return":
@@ -608,6 +633,9 @@ export abstract class BaseASTVisitor<T> implements ASTVisitor<T> {
     abstract visitInput(node: InputNode): T;
     abstract visitOutput(node: OutputNode): T;
     abstract visitDebugger(node: DebuggerNode): T;
+    abstract visitImportStatement(node: ImportStatementNode): T;
+    abstract visitImportExpression(node: ImportExpressionNode): T;
+    abstract visitExportStatement(node: ExportStatementNode): T;
     abstract visitDisposeStatement(node: DisposeStatementNode): T;
     abstract visitReturn(node: ReturnNode): T;
     abstract visitOpenFile(node: OpenFileNode): T;

@@ -40,6 +40,9 @@ import {
     PointerDereferenceNode,
     AddressOfNode,
     DisposeStatementNode,
+    ImportStatementNode,
+    ImportExpressionNode,
+    ExportStatementNode,
 } from "../parser/ast-nodes";
 
 interface CaseNode extends StatementNode {
@@ -87,7 +90,10 @@ type EvaluatableNode =
     | SetLiteralNode
     | PointerDereferenceNode
     | AddressOfNode
-    | DisposeStatementNode;
+    | DisposeStatementNode
+    | ImportStatementNode
+    | ImportExpressionNode
+    | ExportStatementNode;
 
 function isEvaluatableNode(node: ASTNode): node is EvaluatableNode {
     switch (node.type) {
@@ -129,6 +135,9 @@ function isEvaluatableNode(node: ASTNode): node is EvaluatableNode {
         case "PointerDereference":
         case "AddressOf":
         case "DisposeStatement":
+        case "ImportStatement":
+        case "ImportExpression":
+        case "ExportStatement":
             return true;
         default:
             return false;
@@ -218,7 +227,7 @@ import {
 
 import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
 
-import builtInFunctions from "./builtin-functions";
+import builtInFunctions, { EXTENDED_BUILTIN_NAMES } from "./builtin-functions";
 import { RuntimeFileManager } from "./file-manager";
 import { FileOperationEvaluator } from "./file-operations-evaluator";
 import { ResultAsync, okAsync, errAsync } from "neverthrow";
@@ -229,6 +238,7 @@ import { IOInterface } from "../io/io-interface";
 import { VariableAtomFactory, VariableAtom } from "./variable-atoms";
 import { DebuggerController, DebugSnapshot, type DebugPauseReason } from "./debugger";
 import { Heap, NULL_POINTER } from "./heap";
+import type { ImportInfo } from "./linker";
 
 export class Evaluator {
     private environment: Environment;
@@ -243,9 +253,12 @@ export class Evaluator {
     private pointerTypes: Map<string, PointerTypeInfo> = new Map();
     private debuggerController?: DebuggerController;
     private heap: Heap;
+    private strictMode: boolean;
+    private namespaceImports: Map<string, ImportInfo> = new Map();
 
-    constructor(io: IOInterface) {
+    constructor(io: IOInterface, strictMode: boolean = false) {
         this.io = io;
+        this.strictMode = strictMode;
         this.heap = new Heap();
         this.environment = new Environment(this.heap);
         this.context = new ExecutionContext(this.environment);
@@ -260,6 +273,14 @@ export class Evaluator {
 
     setDebuggerController(controller?: DebuggerController): void {
         this.debuggerController = controller;
+    }
+
+    setNamespaceImports(imports: ImportInfo[]): void {
+        for (const info of imports) {
+            if (info.namespace) {
+                this.namespaceImports.set(info.namespace, info);
+            }
+        }
     }
 
     evaluateProgramR(node: ProgramNode): RuntimeAsyncResult<unknown> {
@@ -505,6 +526,42 @@ export class Evaluator {
                     this.evaluateDisposeStatement(node),
                     (error: unknown) => toRuntimeError(error, node.line, node.column),
                 );
+
+            case "ImportStatement":
+                if (this.strictMode) {
+                    return errAsync(
+                        new RuntimeError(
+                            "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                            node.line,
+                            node.column,
+                        ),
+                    );
+                }
+                return okAsync(undefined);
+
+            case "ImportExpression":
+                if (this.strictMode) {
+                    return errAsync(
+                        new RuntimeError(
+                            "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                            node.line,
+                            node.column,
+                        ),
+                    );
+                }
+                return okAsync(undefined);
+
+            case "ExportStatement":
+                if (this.strictMode) {
+                    return errAsync(
+                        new RuntimeError(
+                            "EXPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                            node.line,
+                            node.column,
+                        ),
+                    );
+                }
+                return okAsync(undefined);
         }
     }
 
@@ -1379,8 +1436,34 @@ export class Evaluator {
     private async evaluateCallExpression(node: CallExpressionNode): Promise<unknown> {
         const routineName = node.name;
 
+        if (node.namespace) {
+            const nsInfo = this.namespaceImports.get(node.namespace);
+            if (!nsInfo) {
+                throw new RuntimeError(
+                    `Unknown namespace '${node.namespace}'`,
+                    node.line,
+                    node.column,
+                );
+            }
+            if (!nsInfo.exportedNames.includes(routineName)) {
+                throw new RuntimeError(
+                    `'${routineName}' is not exported from '${node.namespace}'`,
+                    node.line,
+                    node.column,
+                );
+            }
+        }
+
         if (routineName === "EOF") {
             return this.fileOperations.evaluateEOFCall(node.arguments, node.line, node.column);
+        }
+
+        if (this.strictMode && EXTENDED_BUILTIN_NAMES.has(routineName)) {
+            throw new RuntimeError(
+                `'${routineName}' is not a CAIE standard function (CAIE_ONLY mode is enabled)`,
+                node.line,
+                node.column,
+            );
         }
 
         if (routineName === "TYPEOF") {

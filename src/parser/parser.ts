@@ -48,6 +48,9 @@ import {
     PointerDereferenceNode,
     AddressOfNode,
     DisposeStatementNode,
+    ImportStatementNode,
+    ExportStatementNode,
+    ImportExpressionNode,
     ParameterNode,
 } from "./ast-nodes";
 import {
@@ -229,6 +232,14 @@ export class Parser {
                 return this.disposeStatement();
             }
 
+            if (this.match(TokenType.IMPORT)) {
+                return this.importStatement();
+            }
+
+            if (this.match(TokenType.EXPORT)) {
+                return this.exportStatement();
+            }
+
             // If none of the above, try to parse as an assignment or expression statement
             return this.assignmentOrExpressionStatement();
         } catch (error) {
@@ -260,6 +271,10 @@ export class Parser {
 
     private isIdentifierNode(expression: ExpressionNode): expression is IdentifierNode {
         return expression.type === "Identifier";
+    }
+
+    private isMemberAccessNode(expression: ExpressionNode): expression is MemberAccessNode {
+        return expression.type === "MemberAccess";
     }
 
     private isUnaryExpressionNode(expression: ExpressionNode): expression is UnaryExpressionNode {
@@ -386,6 +401,8 @@ export class Parser {
             case TokenType.EOF:
             case TokenType.IN:
             case TokenType.FROM:
+            case TokenType.IMPORT:
+            case TokenType.EXPORT:
             case TokenType.INTEGER:
             case TokenType.REAL:
             case TokenType.CHAR:
@@ -971,6 +988,39 @@ export class Parser {
         return {
             type: "DisposeStatement",
             pointer,
+            line,
+            column,
+        };
+    }
+
+    private importStatement(): ImportStatementNode {
+        const line = this.previous().line;
+        const column = this.previous().column;
+        const pathToken = this.consume(TokenType.STRING_LITERAL, "Expected file path string after IMPORT");
+        const filePath = String(pathToken.value);
+        this.consumeNewline();
+        return {
+            type: "ImportStatement",
+            filePath,
+            line,
+            column,
+        };
+    }
+
+    private exportStatement(): ExportStatementNode {
+        const line = this.previous().line;
+        const column = this.previous().column;
+        const names: string[] = [];
+        const nameToken = this.consume(TokenType.IDENTIFIER, "Expected identifier after EXPORT");
+        names.push(String(nameToken.value));
+        while (this.match(TokenType.COMMA)) {
+            const nextName = this.consume(TokenType.IDENTIFIER, "Expected identifier after comma in EXPORT");
+            names.push(String(nextName.value));
+        }
+        this.consumeNewline();
+        return {
+            type: "ExportStatement",
+            names,
             line,
             column,
         };
@@ -1619,6 +1669,34 @@ export class Parser {
                 continue;
             }
 
+            if (this.isMemberAccessNode(expr) && this.match(TokenType.LEFT_PAREN)) {
+                const namespace =
+                    this.isIdentifierNode(expr.object) ? expr.object.name : undefined;
+                const args: ExpressionNode[] = [];
+
+                if (!this.check(TokenType.RIGHT_PAREN)) {
+                    do {
+                        args.push(this.expression());
+                    } while (this.match(TokenType.COMMA));
+                }
+
+                const closingParen = this.consume(
+                    TokenType.RIGHT_PAREN,
+                    "Expected ')' after arguments",
+                );
+
+                const callExpression: CallExpressionNode = {
+                    type: "CallExpression",
+                    name: expr.field,
+                    namespace,
+                    arguments: args,
+                    line: closingParen.line,
+                    column: closingParen.column,
+                };
+                expr = callExpression;
+                continue;
+            }
+
             if (this.match(TokenType.LEFT_BRACKET)) {
                 const indices: ExpressionNode[] = [];
 
@@ -1676,6 +1754,19 @@ export class Parser {
     }
 
     private primary(): ExpressionNode {
+        if (this.match(TokenType.IMPORT)) {
+            const line = this.previous().line;
+            const column = this.previous().column;
+            const pathToken = this.consume(TokenType.STRING_LITERAL, "Expected file path string after IMPORT");
+            const filePath = String(pathToken.value);
+            return {
+                type: "ImportExpression",
+                filePath,
+                line,
+                column,
+            } as ImportExpressionNode;
+        }
+
         if (this.match(TokenType.NULL)) {
             const literal: LiteralNode = {
                 type: "Literal",

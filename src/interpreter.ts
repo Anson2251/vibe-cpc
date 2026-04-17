@@ -8,6 +8,7 @@
 import { Lexer } from "./lexer/lexer";
 import { Parser } from "./parser/parser";
 import { Evaluator } from "./runtime/evaluator";
+import { Linker } from "./runtime/linker";
 import type { IOInterface } from "./io/io-interface";
 import type { ProgramNode } from "./parser/ast-nodes";
 import { PseudocodeError, ErrorHandler } from "./errors";
@@ -29,6 +30,11 @@ function unescapeString(str: string) {
     return str.replace(/\\([nrtbf'"\\])/g, (_, char: string) =>
         Object.prototype.hasOwnProperty.call(escapes, char) ? escapes[char] : char,
     );
+}
+
+function detectStrictMode(sourceCode: string): boolean {
+    const firstLine = sourceCode.trim().split("\n")[0].trim();
+    return firstLine.includes("CAIE_ONLY");
 }
 
 /**
@@ -87,6 +93,8 @@ export class Interpreter {
         const startTime = Date.now(); // Record the start time for execution metrics
         this.executionSteps = 0; // Reset execution step counter
 
+        const strictMode = detectStrictMode(sourceCode);
+
         const parseResult = this.parseResult(sourceCode);
         if (parseResult.isErr()) {
             return this.buildErrorResult(parseResult.error, startTime);
@@ -94,19 +102,29 @@ export class Interpreter {
 
         const ast = parseResult.value;
 
+        let linkedAst = ast;
+        let namespaceImports: import("./runtime/linker").ImportInfo[] = [];
+
+        if (!strictMode) {
+            const linker = new Linker(this.io);
+            linkedAst = await linker.link(ast);
+            namespaceImports = linker.getImports();
+        }
+
         if (this.options.debug) {
-            this.io.output(`AST: ${JSON.stringify(ast, null, 2)}\n`);
+            this.io.output(`AST: ${JSON.stringify(linkedAst, null, 2)}\n`);
             this.io.output("Evaluating...\n");
         }
 
-        const evaluator = new Evaluator(this.io);
+        const evaluator = new Evaluator(this.io, strictMode);
         this.currentEvaluator = evaluator;
         evaluator.setDebuggerController(this.debuggerController);
+        evaluator.setNamespaceImports(namespaceImports);
 
         let evalResult;
         let autoClosedFiles: string[] = [];
         try {
-            evalResult = await evaluator.evaluateProgramR(ast);
+            evalResult = await evaluator.evaluateProgramR(linkedAst);
         } finally {
             autoClosedFiles = await evaluator.dispose();
             this.currentEvaluator = null;

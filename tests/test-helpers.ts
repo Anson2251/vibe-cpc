@@ -12,6 +12,7 @@ export interface TestResult {
 export class TestRunner {
     private mockIO: MockIO;
     private interpreter: Interpreter;
+    private fileContents: Map<string, string> = new Map();
 
     constructor() {
         this.mockIO = new MockIO();
@@ -25,6 +26,10 @@ export class TestRunner {
     async runCode(code: string, inputs: string[] = []): Promise<TestResult> {
         this.mockIO.reset();
         this.mockIO.setInput(inputs);
+        // Restore file contents that were set via setFileContent
+        this.fileContents.forEach((content, path) => {
+            this.mockIO.setFileContent(path, content);
+        });
 
         try {
             const result: ExecutionResult = await this.interpreter.execute(code);
@@ -67,6 +72,7 @@ export class TestRunner {
     }
 
     setFileContent(path: string, content: string): void {
+        this.fileContents.set(path, content);
         this.mockIO.setFileContent(path, content);
     }
 
