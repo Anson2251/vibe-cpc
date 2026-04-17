@@ -12,7 +12,9 @@
     "typecheck": "tsgo --noEmit -p tsconfig.build.json",
     "build:types": "tsgo -p tsconfig.types.json",
     "build": "pnpm clean && pnpm typecheck && rolldown -c && pnpm build:types",
-    "test": "pnpx jest",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "oxlint src tests --type-aware --max-warnings=0",
     "lint:fix": "oxlint src tests --type-aware --fix",
     "lint:ci": "oxlint src tests --type-aware --max-warnings=0 --format=stylish",
@@ -30,15 +32,13 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@types/jest": "^30.0.0",
     "@types/node": "^20.19.39",
     "@typescript/native-preview": "7.0.0-dev.20260409.1",
-    "jest": "^30.3.0",
     "oxfmt": "^0.44.0",
-    "oxlint": "^1.59.0",
+    "oxlint": "^1.60.0",
     "oxlint-tsgolint": "^0.20.0",
     "rolldown": "1.0.0-rc.15",
-    "ts-jest": "^29.4.9"
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": ">=16.0.0"

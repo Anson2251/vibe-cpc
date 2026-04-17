@@ -1,25 +1,13 @@
-// Global test setup
-
-// Silence console output during tests unless explicitly testing output
-// const originalConsoleLog = console.log;
-// const originalConsoleError = console.error;
+import { beforeEach, beforeAll, afterAll, vi } from "vitest";
 
 beforeEach(() => {
-    // Reset console mocks before each test
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 });
 
-// afterEach(() => {
-// 	// Restore console methods
-// 	console.log = originalConsoleLog;
-// 	console.error = originalConsoleError;
-// });
-
-// Mock Date.now() for consistent timing tests
 const mockDate = new Date("2023-01-01T00:00:00.000Z");
 const originalDateNow = Date.now;
 beforeAll(() => {
-    Date.now = jest.fn(() => mockDate.getTime());
+    Date.now = vi.fn(() => mockDate.getTime());
 });
 
 afterAll(() => {

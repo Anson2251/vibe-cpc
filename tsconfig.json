@@ -16,7 +16,7 @@
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "types": ["node", "jest"]
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*", "tests/**/*", "./env.d.ts"],
   "exclude": ["node_modules", "dist"]
