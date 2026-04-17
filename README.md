@@ -17,20 +17,20 @@ A TypeScript interpreter for the CAIE (Cambridge Assessment International Educat
 The interpreter follows a modular architecture with clear separation of concerns:
 
 ```text
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     Lexer       │───▶│     Parser      │───▶│    Runtime      │
-│  (Tokenization) │    │  (AST Building) │    │ (Execution)     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
-                                               ┌─────────────────┐
-                                               │  Memory Manager │
-                                               │  (Variables)    │
-                                               └─────────────────┘
-                                                        │
-                                               ┌─────────────────┐
-                                               │   IO Interface  │
-                                               │ (Console/Files) │
-                                               └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│     Lexer       │───▶│     Parser      │───▶│     Linker      │───▶│    Runtime      │
+│  (Tokenization) │    │  (AST Building) │    │ (AST Expansion) │    │ (Execution)     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+                                                                              │
+                                                                     ┌─────────────────┐
+                                                                     │  Memory Manager │
+                                                                     │  (Variables)    │
+                                                                     └─────────────────┘
+                                                                              │
+                                                                     ┌─────────────────┐
+                                                                     │   IO Interface  │
+                                                                     │ (Console/Files) │
+                                                                     └─────────────────┘
 ```
 
 ## Project Structure
@@ -61,13 +61,41 @@ src/
 | File operations | `OPENFILE`, `READFILE`, `WRITEFILE`, `EOF`, random-file ops | ✅ Supported | CAIE-style file identifier syntax |
 | OOP | `CLASS`, `INHERITS`, `NEW`, methods/properties | ⚠️ Partial | Parser support is broader than runtime behavior |
 | Pointers | Pointer type semantics | ❌ Not supported | Decl syntax in guide not yet implemented |
-| Constants | `CONSTANT` statement | ⚠️ Partial | Lexer token exists; full statement semantics pending |
+| Constants | `CONSTANT` statement | ✅ Supported | Full statement semantics including type inference |
+| Modularity | `IMPORT`, `EXPORT` | ⚠️ Extension | Compile-time AST expansion; blocked in CAIE_ONLY mode |
+| Strict mode | `// CAIE_ONLY` comment | ⚠️ Extension | Restricts to CAIE standard features only |
+| Extended functions | POSITION, ROUND, ABS, SQRT, REPLACE, TRIM, POWER, TYPEOF | ⚠️ Extension | Blocked in CAIE_ONLY mode |
 | Debugging extension | `DEBUGGER`, step controls, source breakpoints | ⚠️ Extension | Not part of official CAIE pseudocode standard |
 
 ## Language Extensions
 
-- `DEBUGGER` is an interpreter extension and not an official CAIE pseudocode keyword.
-- Programs that require strict CAIE portability should avoid `DEBUGGER` and rely on standard constructs only.
+Beyond the official CAIE pseudocode specification, the interpreter provides several extensions for teaching convenience and modularity. All extensions are blocked when CAIE_ONLY mode is enabled.
+
+### CAIE_ONLY Mode
+
+Add `// CAIE_ONLY` as the first non-empty line of your program to restrict the interpreter to CAIE 9618 standard features only. This is useful for exam preparation and ensuring code complies strictly with the syllabus.
+
+### Extended Built-in Functions
+
+| Category | Functions | Description |
+| --- | --- | --- |
+| String | `POSITION`, `REPLACE`, `TRIM` | Substring search, replacement, and whitespace trimming |
+| Numeric | `ROUND`, `ABS`, `SQRT`, `POWER` | Rounding, absolute value, square root, exponentiation |
+| Type | `TYPEOF` | Returns the declared type name of a value as a string |
+
+### IMPORT and EXPORT
+
+Compile-time modularity support for library routines:
+
+- **`EXPORT Name1, Name2`** — Controls which declarations are visible to importers (default: nothing is exported)
+- **`IMPORT "filename"`** — Direct inclusion of exported declarations
+- **`CONSTANT ns = IMPORT "filename"`** — Namespace import, accessed via `ns.FunctionName()`
+
+See [cpc-extended.md](docs/cpc-extended.md) for full details.
+
+### Debugger Extension
+
+`DEBUGGER` is an interpreter extension and not an official CAIE pseudocode keyword. Programs that require strict CAIE portability should avoid `DEBUGGER` and rely on standard constructs only.
 
 ## Debugger API (Public)
 
@@ -131,8 +159,9 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - **Arithmetic**: +, -, *, /, DIV, MOD
 - **Relational**: >, <, >=, <=, =, <>
 - **Logical**: AND, OR, NOT
-- **String Operations**: Concatenation (&), LENGTH, MID, LEFT, RIGHT, LCASE, UCASE
-- **Numeric Functions**: INT, RAND
+- **String Operations**: Concatenation (&), LENGTH, MID, LEFT, RIGHT, LCASE, UCASE, POSITION, REPLACE, TRIM
+- **Numeric Functions**: INT, RAND, ROUND, ABS, SQRT, POWER
+- **Type Functions**: TYPEOF
 
 ### File Operations
 - **Text Files**: OPENFILE, READFILE, WRITEFILE, CLOSEFILE, EOF

@@ -1878,6 +1878,18 @@ EXPORT Add
             expectError(result, "EXPORT is not a CAIE standard feature");
         });
 
+        test("should block DEBUGGER in CAIE_ONLY mode", async () => {
+            const code = `
+// CAIE_ONLY
+DECLARE x : INTEGER
+DEBUGGER
+x <- 5
+            `;
+
+            const result = await testRunner.runCode(code);
+            expectError(result, "DEBUGGER is not a CAIE standard feature");
+        });
+
         test("should error on unknown namespace", async () => {
             testRunner.setFileContent("lib.cpc", `
 FUNCTION Add(A : INTEGER, B : INTEGER) RETURNS INTEGER

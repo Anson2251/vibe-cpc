@@ -15,7 +15,7 @@ x <- 5
 OUTPUT x
 ```
 
-When CAIE_ONLY mode is enabled, all extended functions listed below will produce a runtime error. This is useful for exam preparation and ensuring code complies strictly with the syllabus.
+When CAIE_ONLY mode is enabled, all extended functions and statements listed below (including `DEBUGGER`, `IMPORT`, `EXPORT`) will produce a runtime error. This is useful for exam preparation and ensuring code complies strictly with the syllabus.
 
 ---
 

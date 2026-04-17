@@ -1150,6 +1150,14 @@ export class Evaluator {
     }
 
     private async evaluateDebugger(node: DebuggerNode): Promise<void> {
+        if (this.strictMode) {
+            throw new RuntimeError(
+                "DEBUGGER is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                node.line,
+                node.column,
+            );
+        }
+
         if (!this.debuggerController) {
             return;
         }
