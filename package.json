@@ -1,7 +1,7 @@
 {
   "name": "vibe-cpc",
   "type": "module",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "A TypeScript interpreter for the CAIE pseudocode language",
   "main": "dist/index.cjs",
   "types": "dist/types/index.d.ts",
@@ -37,19 +37,17 @@
     "@types/node": "^20.19.39",
     "@typescript/native-preview": "7.0.0-dev.20260409.1",
     "@vitest/coverage-v8": "4.1.4",
+    "neverthrow": "^8.2.0",
     "oxfmt": "^0.44.0",
     "oxlint": "^1.60.0",
     "oxlint-tsgolint": "^0.20.0",
     "quickjs-types": "^1.2.0",
     "rolldown": "1.0.0-rc.15",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "zod": "^4.3.6"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=16.0.0"
-  },
-  "dependencies": {
-    "neverthrow": "^8.2.0",
-    "zod": "^4.3.6"
   }
 }

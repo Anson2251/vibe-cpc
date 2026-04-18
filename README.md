@@ -259,9 +259,6 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - [x] Debugger extension
 - [x] Portable binary executable
 
-### Planned
-- Prepare 0.1.0-alpha.1 release
-
 ## Getting Started
 
 ### Installation

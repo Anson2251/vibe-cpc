@@ -5,10 +5,9 @@ examples/
 scripts/
 build/
 
-.github/
-.editorconfig
-.oxlintrc.json
-.gitignore
+.*
+*.tgz
+coverage
 
 tsconfig.json
 tsconfig.build.json
