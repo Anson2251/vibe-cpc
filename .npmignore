@@ -19,3 +19,4 @@ env.d.ts
 pnpm-lock.yaml
 
 *.map
+dist/vibe-cpc-quickjs.mjs
