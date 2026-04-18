@@ -264,39 +264,30 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 
 ## Getting Started
 
-### Prerequisites
-- Node.js (for development and testing)
-- pnpm (package manager)
-- TypeScript compiler
-- ES2020 compatible environment
-
 ### Installation
 ```bash
-# Clone the repository
+# Run directly (no install needed)
+npx vibe-cpc@alpha program.pseudo
+
+# Or install globally
+npm install -g vibe-cpc@alpha
+vibe-cpc program.pseudo
+```
+
+### Development
+```bash
 git clone https://github.com/Anson2251/vibe-cpc.git
 cd vibe-cpc
-
-# Install dependencies
 pnpm install
-
-# Build the project
 pnpm run build
-
-# Run tests
 pnpm test
-
-# Run tests in watch mode
-pnpm test:watch
-
-# Run tests with coverage
-pnpm test:coverage
-
-# Lint and type check
 pnpm run lint
 pnpm run typecheck
 ```
 
 ### Building a Standalone Binary
+
+The standalone binary has no Node.js runtime dependency — ideal for deployment environments, exam machines, or distributing to students without requiring any setup.
 
 The build script automatically downloads the QuickJS amalgam build and a pre-built `qjsc` from GitHub Releases — no CMake or system installation needed.
 
