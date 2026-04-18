@@ -6,7 +6,7 @@
   "main": "dist/index.cjs",
   "types": "dist/types/index.d.ts",
   "bin": {
-    "vibe-cpc": "dist/interpreter-node.cjs"
+    "vibe-cpc": "dist/vibe-cpc-node.cjs"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit -p tsconfig.build.json",

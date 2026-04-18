@@ -48,6 +48,7 @@ export default defineConfig([
       sourcemap: true,
       exports: 'named',
       codeSplitting: false,
+      banner: '#!/usr/bin/env node\n',
     },
   },
   {
