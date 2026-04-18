@@ -9,8 +9,15 @@ INPUT="$DIST_DIR/interpreter-quickjs.mjs"
 OUTPUT="$DIST_DIR/caie-pseudocode"
 TEMP_C="$DIST_DIR/interpreter-quickjs.c"
 
-QJS_URL="https://github.com/bellard/quickjs/archive/refs/heads/master.zip"
-QJS_SRC="$BUILD_DIR/quickjs-master"
+QJS_VERSION="0.14.0"
+RELEASE_BASE="https://github.com/quickjs-ng/quickjs/releases/download/v${QJS_VERSION}"
+AMALGAM_URL="${RELEASE_BASE}/quickjs-amalgam.zip"
+
+IS_WINDOWS=false
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+    IS_WINDOWS=true
+    OUTPUT="$DIST_DIR/caie-pseudocode.exe"
+fi
 
 if [ ! -f "$INPUT" ]; then
     echo "Error: $INPUT not found. Run 'pnpm build' first." >&2
@@ -22,40 +29,73 @@ if ! command -v cc &>/dev/null; then
     exit 1
 fi
 
-if ! command -v make &>/dev/null; then
-    echo "Error: make not found." >&2
-    exit 1
-fi
+mkdir -p "$BUILD_DIR"
 
-# --- Build QuickJS if not already built ---
-if [ ! -f "$QJS_SRC/qjsc" ]; then
-    echo "QuickJS not found locally, downloading and building ..."
-
-    mkdir -p "$BUILD_DIR"
-
-    if [ ! -d "$QJS_SRC" ]; then
-        if command -v curl &>/dev/null; then
-            curl -L "$QJS_URL" -o "$BUILD_DIR/quickjs-master.zip"
-        elif command -v wget &>/dev/null; then
-            wget -O "$BUILD_DIR/quickjs-master.zip" "$QJS_URL"
-        else
-            echo "Error: curl or wget required to download QuickJS" >&2
-            exit 1
-        fi
-
-        echo "Extracting ..."
-        unzip -q "$BUILD_DIR/quickjs-master.zip" -d "$BUILD_DIR"
-        rm -f "$BUILD_DIR/quickjs-master.zip"
+# --- Download amalgam if not present ---
+AMALGAM_DIR="$BUILD_DIR/amalgam"
+if [ ! -f "$AMALGAM_DIR/quickjs-amalgam.c" ]; then
+    echo "Downloading QuickJS amalgam v${QJS_VERSION} ..."
+    ZIP_PATH="$BUILD_DIR/quickjs-amalgam.zip"
+    if command -v curl &>/dev/null; then
+        curl -L "$AMALGAM_URL" -o "$ZIP_PATH"
+    elif command -v wget &>/dev/null; then
+        wget -O "$ZIP_PATH" "$AMALGAM_URL"
+    else
+        echo "Error: curl or wget required" >&2
+        exit 1
     fi
 
-    echo "Building QuickJS (this may take a moment) ..."
-    make -C "$QJS_SRC" qjsc libquickjs.a -j"$(nproc 2>/dev/null || echo 1)"
-    echo "QuickJS built successfully."
+    echo "Extracting amalgam ..."
+    mkdir -p "$AMALGAM_DIR"
+    unzip -q -o "$ZIP_PATH" -d "$AMALGAM_DIR"
+    rm -f "$ZIP_PATH"
 fi
 
-QJSC="$QJS_SRC/qjsc"
-QJS_INCLUDE="$QJS_SRC"
-QJS_LIB="$QJS_SRC"
+# --- Download qjsc if not present ---
+QJSC="$BUILD_DIR/qjsc"
+if [ "$IS_WINDOWS" = true ]; then
+    QJSC="$BUILD_DIR/qjsc.exe"
+fi
+
+if [ ! -f "$QJSC" ]; then
+    echo "Downloading qjsc for your platform ..."
+    OS_NAME="$(uname -s)"
+    ARCH="$(uname -m)"
+
+    case "$OS_NAME" in
+        Darwin)
+            QJSC_ASSET="qjsc-darwin"
+            ;;
+        Linux)
+            if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+                QJSC_ASSET="qjsc-linux-aarch64"
+            elif [ "$ARCH" = "armv7l" ]; then
+                QJSC_ASSET="qjsc-linux-armv7"
+            else
+                QJSC_ASSET="qjsc-linux-x86_64"
+            fi
+            ;;
+        MINGW*|MSYS*|CYGWIN*)
+            if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then
+                QJSC_ASSET="qjsc-windows-x86_64.exe"
+            else
+                QJSC_ASSET="qjsc-windows-x86.exe"
+            fi
+            ;;
+        *)
+            echo "Error: Unsupported OS: $OS_NAME" >&2
+            exit 1
+            ;;
+    esac
+
+    QJSC_URL="${RELEASE_BASE}/${QJSC_ASSET}"
+    if command -v curl &>/dev/null; then
+        curl -L "$QJSC_URL" -o "$QJSC"
+    elif command -v wget &>/dev/null; then
+        wget -O "$QJSC" "$QJSC_URL"
+    fi
+    chmod +x "$QJSC"
+fi
 
 cleanup() {
     rm -f "$TEMP_C"
@@ -64,21 +104,37 @@ trap cleanup EXIT
 
 # --- Step 1: Generate C source with qjsc ---
 echo "Step 1/2: Generating C source from $INPUT ..."
-"$QJSC" -e -fno-module-loader -o "$TEMP_C" "$INPUT" || {
+"$QJSC" -e -s -s -o "$TEMP_C" "$INPUT" || {
     echo "Error: qjsc code generation failed" >&2
     exit 1
 }
 
 # --- Step 2: Compile to standalone binary ---
 echo "Step 2/2: Compiling $TEMP_C -> $OUTPUT ..."
-cc -flto \
-    -I"$QJS_INCLUDE" \
-    -L"$QJS_LIB" \
-    -o "$OUTPUT" "$TEMP_C" \
-    -lquickjs -lm -lpthread || {
-    echo "Error: C compilation failed" >&2
-    exit 1
-}
+if [ "$IS_WINDOWS" = true ]; then
+    cc -O3 -static -static-libgcc \
+        -I"$AMALGAM_DIR" \
+        -DQJS_BUILD_LIBC \
+        -o "$OUTPUT" "$AMALGAM_DIR/quickjs-amalgam.c" "$TEMP_C" \
+        -Wl,--stack,8388608 || {
+        echo "Error: C compilation failed" >&2
+        exit 1
+    }
+else
+    cc -O3 \
+        -I"$AMALGAM_DIR" \
+        -DQJS_BUILD_LIBC \
+        -o "$OUTPUT" "$AMALGAM_DIR/quickjs-amalgam.c" "$TEMP_C" \
+        -lm -lpthread || {
+        echo "Error: C compilation failed" >&2
+        exit 1
+    }
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        strip "$OUTPUT"
+    else
+        strip -s "$OUTPUT"
+    fi
+fi
 
 chmod +x "$OUTPUT"
 echo "Done: $OUTPUT"

@@ -13,6 +13,7 @@
     "build:types": "tsgo -p tsconfig.types.json",
     "build": "pnpm clean && pnpm typecheck && rolldown -c && pnpm build:types",
     "build:binary": "pnpm build && bash scripts/build-binary.sh",
+    "build:binary:msvc": "pnpm build && pwsh scripts/build-binary.ps1",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
