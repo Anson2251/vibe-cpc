@@ -15,7 +15,7 @@ import { PseudocodeError } from "../errors";
  * Node.js implementation of the CLI interface
  */
 export class NodeCLIAdapter implements CLIInterface {
-    private readonly packageName = "caie-pseudocode-interpreter";
+    private readonly packageName = "vibe-cpc";
     private readonly packageVersion = __VERSION__;
 
     /**
@@ -143,8 +143,8 @@ ${this.packageName} v${this.packageVersion}
 A TypeScript interpreter for the CAIE pseudocode language
 
 USAGE:
-  caie-pseudocode [OPTIONS] [FILE]
-  caie-pseudocode [OPTIONS] --code CODE
+  vibe-cpc [OPTIONS] [FILE]
+  vibe-cpc [OPTIONS] --code CODE
 
 OPTIONS:
   -f, --file FILE          Execute pseudocode from FILE
@@ -155,10 +155,10 @@ OPTIONS:
   -h, --help               Show this help message
 
 EXAMPLES:
-  caie-pseudocode program.pseudo
-  caie-pseudocode --code "DECLARE x : INTEGER\\nx <- 5\\nOUTPUT x"
-  caie-pseudocode --file program.pseudo --verbose
-  caie-pseudocode --file program.pseudo --output json
+  vibe-cpc program.pseudo
+  vibe-cpc --code "DECLARE x : INTEGER\\nx <- 5\\nOUTPUT x"
+  vibe-cpc --file program.pseudo --verbose
+  vibe-cpc --file program.pseudo --output json
 `);
     }
 

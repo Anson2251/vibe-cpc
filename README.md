@@ -43,7 +43,11 @@ src/
 ├── lexer/            # Tokenization
 ├── parser/           # AST generation
 ├── runtime/          # Execution engine
-└── types/            # Type definitions
+├── types/            # Type definitions
+├── interpreter.ts    # Main interpreter class
+├── result.ts         # Result type utilities
+├── index.ts          # Package entry point
+└── browser-index.ts  # Browser entry point
 ```
 
 ## Test Structure
@@ -286,18 +290,35 @@ pnpm test:watch
 
 # Run tests with coverage
 pnpm test:coverage
+
+# Lint and type check
+pnpm run lint
+pnpm run typecheck
 ```
 
-### Building a Standalone Binary (Linux/MacOS)
+### Building a Standalone Binary
 
-The build script automatically downloads and compiles QuickJS from source — no system installation needed:
+The build script automatically downloads the QuickJS amalgam build and a pre-built `qjsc` from GitHub Releases — no CMake or system installation needed.
+
+**Linux / macOS / MSYS2:**
 
 ```bash
-# Requires: gcc, make, curl or wget
+# Requires: gcc/clang, curl/wget
 pnpm run build:binary
 
 # Run the binary
-./dist/caie-pseudocode program.pseudo
+./dist/vibe-cpc program.pseudo
+```
+
+**Windows (MSVC):**
+
+```powershell
+# Run from a Visual Studio Developer Command Prompt
+# Requires: Visual Studio 2022 17.5+ (for C11 atomics support), PowerShell 7
+pnpm run build:binary:msvc
+
+# Run the binary
+.\dist\vibe-cpc.exe program.pseudo
 ```
 
 The binary is self-contained with no Node.js dependency, suitable for deployment environments.
@@ -308,16 +329,16 @@ The binary is self-contained with no Node.js dependency, suitable for deployment
 
 ```bash
 # Execute a pseudocode file
-caie-pseudocode program.pseudo
+vibe-cpc program.pseudo
 
 # Execute from a string
-caie-pseudocode --code "DECLARE x : INTEGER\\nx <- 5\\nOUTPUT x"
+vibe-cpc --code "DECLARE x : INTEGER\\nx <- 5\\nOUTPUT x"
 
 # Show execution time and steps
-caie-pseudocode --verbose program.pseudo
+vibe-cpc --verbose program.pseudo
 
 # Output tokens and AST as JSON (parse only, no execution)
-caie-pseudocode --output json program.pseudo
+vibe-cpc --output json program.pseudo
 ```
 
 #### CLI Options
@@ -334,10 +355,9 @@ caie-pseudocode --output json program.pseudo
 ### API
 
 ```typescript
-import { Interpreter } from './src/index';
-import { NodeIO } from './src/io/node-io-impl';
+import { Interpreter, NodeIOImpl } from 'vibe-cpc';
 
-const io = new NodeIO();
+const io = new NodeIOImpl();
 const interpreter = new Interpreter(io);
 
 // Execute pseudocode
@@ -348,6 +368,8 @@ OUTPUT "x = ", x
 `);
 
 console.log(result.success, result.executionTime, result.steps);
+
+await interpreter.dispose();
 
 // Analyze (lex + parse only, no execution)
 const analysis = interpreter.analyze(`
@@ -360,19 +382,26 @@ console.log(analysis.tokens);  // Array of { type, value, line, column }
 console.log(analysis.ast);     // Program AST node
 ```
 
-## Development
+#### Convenience Functions
 
-```bash
-pnpm install
-pnpm run build
-pnpm test
-pnpm run lint
-pnpm run typecheck
+For one-off execution without manually managing the interpreter lifecycle:
+
+```typescript
+import { execute, executeFile, createInterpreter } from 'vibe-cpc';
+
+// Execute a code string (auto-disposes resources)
+const result = await execute('OUTPUT "Hello"');
+
+// Execute a file (auto-disposes resources)
+const result = await executeFile('program.pseudo');
+
+// Create an interpreter with default Node.js IO
+const interpreter = createInterpreter();
 ```
 
 ## License
 
-AGPL
+AGPL-3.0
 
 ## Third-Party Content
 

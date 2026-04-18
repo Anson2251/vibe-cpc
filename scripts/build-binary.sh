@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$PROJECT_DIR/dist"
 BUILD_DIR="$PROJECT_DIR/build/quickjs"
-INPUT="$DIST_DIR/interpreter-quickjs.mjs"
-OUTPUT="$DIST_DIR/caie-pseudocode"
-TEMP_C="$DIST_DIR/interpreter-quickjs.c"
+INPUT="$DIST_DIR/vibe-cpc-quickjs.mjs"
+OUTPUT="$DIST_DIR/vibe-cpc"
+TEMP_C="$DIST_DIR/vibe-cpc-quickjs.c"
 
 QJS_VERSION="0.14.0"
 RELEASE_BASE="https://github.com/quickjs-ng/quickjs/releases/download/v${QJS_VERSION}"
@@ -16,7 +16,7 @@ AMALGAM_URL="${RELEASE_BASE}/quickjs-amalgam.zip"
 IS_WINDOWS=false
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
     IS_WINDOWS=true
-    OUTPUT="$DIST_DIR/caie-pseudocode.exe"
+    OUTPUT="$DIST_DIR/vibe-cpc.exe"
 fi
 
 if [ ! -f "$INPUT" ]; then

@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli-bundles:
+    name: Build CLI bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run typecheck && pnpm run clean && pnpm exec rolldown -c
+
+      - name: Rename bundles with version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd dist
+          cp vibe-cpc-node.cjs "vibe-cpc-node-${VERSION}.cjs"
+          cp vibe-cpc-quickjs.mjs "vibe-cpc-quickjs-${VERSION}.mjs"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-bundles
+          path: |
+            dist/vibe-cpc-node-*.cjs
+            dist/vibe-cpc-quickjs-*.mjs
+
+  build-binary-linux:
+    name: Build binary (Linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - run: pnpm run build:binary
+
+      - name: Rename binary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mv dist/vibe-cpc "dist/vibe-cpc-${VERSION}-linux-x86_64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-linux-x86_64
+          path: dist/vibe-cpc-*-linux-x86_64
+
+  build-binary-macos-arm64:
+    name: Build binary (macOS ARM64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build:binary
+
+      - name: Rename binary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mv dist/vibe-cpc "dist/vibe-cpc-${VERSION}-macos-arm64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-macos-arm64
+          path: dist/vibe-cpc-*-macos-arm64
+
+  build-binary-macos-x86_64:
+    name: Build binary (macOS x86_64)
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build:binary
+
+      - name: Rename binary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mv dist/vibe-cpc "dist/vibe-cpc-${VERSION}-macos-x86_64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-macos-x86_64
+          path: dist/vibe-cpc-*-macos-x86_64
+
+  build-binary-windows:
+    name: Build binary (Windows x86_64 MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - run: pnpm run build:binary:msvc
+        shell: pwsh
+
+      - name: Rename binary
+        run: |
+          $Version = $env:GITHUB_REF_NAME -replace '^v',''
+          Rename-Item -Path "dist\vibe-cpc.exe" -NewName "vibe-cpc-$Version-windows-x86_64.exe"
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-windows-x86_64
+          path: dist/vibe-cpc-*-windows-x86_64.exe
+
+  upload-release-assets:
+    name: Upload release assets
+    needs:
+      - build-cli-bundles
+      - build-binary-linux
+      - build-binary-macos-arm64
+      - build-binary-macos-x86_64
+      - build-binary-windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**

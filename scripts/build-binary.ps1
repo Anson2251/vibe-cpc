@@ -4,9 +4,9 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $DistDir = Join-Path $ProjectDir "dist"
 $BuildDir = Join-Path $ProjectDir "build\quickjs"
-$Input = Join-Path $DistDir "interpreter-quickjs.mjs"
-$Output = Join-Path $DistDir "caie-pseudocode.exe"
-$TempC = Join-Path $DistDir "interpreter-quickjs.c"
+$Input = Join-Path $DistDir "vibe-cpc-quickjs.mjs"
+$Output = Join-Path $DistDir "vibe-cpc.exe"
+$TempC = Join-Path $DistDir "vibe-cpc-quickjs.c"
 
 $QjsVersion = "0.14.0"
 $ReleaseBase = "https://github.com/quickjs-ng/quickjs/releases/download/v${QjsVersion}"

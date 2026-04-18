@@ -7,7 +7,7 @@ This document outlines the architecture for a TypeScript interpreter for the CAI
 ## Project Structure
 
 ```
-caie-pseudocode-interpreter/
+vibe-cpc/
 ├── src/
 │   ├── core/           # Core interfaces and types
 │   ├── lexer/          # Tokenization and lexical analysis

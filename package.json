@@ -1,12 +1,12 @@
 {
-  "name": "caie-pseudocode-interpreter",
+  "name": "vibe-cpc",
   "type": "module",
   "version": "0.1.0-alpha.1",
   "description": "A TypeScript interpreter for the CAIE pseudocode language",
   "main": "dist/index.cjs",
   "types": "dist/types/index.d.ts",
   "bin": {
-    "caie-pseudocode": "dist/interpreter-node.cjs"
+    "vibe-cpc": "dist/interpreter-node.cjs"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit -p tsconfig.build.json",
@@ -31,8 +31,8 @@
     "typescript",
     "compiler"
   ],
-  "author": "",
-  "license": "MIT",
+  "author": "Anson2251",
+  "license": "AGPL-3.0",
   "devDependencies": {
     "@types/node": "^20.19.39",
     "@typescript/native-preview": "7.0.0-dev.20260409.1",

@@ -4,6 +4,5 @@ coverage/
 node_modules/
 .vscode/
 .VSCodeCounter
-caie-pseudocode-guide.md
 
 .DS_Store

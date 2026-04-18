@@ -43,7 +43,7 @@ export default defineConfig([
       },
     },
     output: {
-      file: 'dist/interpreter-node.cjs',
+      file: 'dist/vibe-cpc-node.cjs',
       format: 'cjs',
       sourcemap: true,
       exports: 'named',
@@ -59,7 +59,7 @@ export default defineConfig([
       },
     },
     output: {
-      file: 'dist/interpreter-quickjs.mjs',
+      file: 'dist/vibe-cpc-quickjs.mjs',
       format: 'esm',
       sourcemap: true,
       codeSplitting: false,
