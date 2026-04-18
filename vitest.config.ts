@@ -12,5 +12,11 @@ export default defineConfig({
             reportsDirectory: 'coverage',
             reporter: ['text', 'lcov', 'html'],
         },
+        execArgv: [
+      '--cpu-prof',
+      '--cpu-prof-dir=test-runner-profile',
+      '--heap-prof',
+      '--heap-prof-dir=test-runner-profile'
+    ],
     },
 });

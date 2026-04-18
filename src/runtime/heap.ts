@@ -10,6 +10,7 @@ export interface HeapObject {
     type: TypeInfo;
     refCount: number;
     isMutable: boolean;
+    arrayLowerBound?: number;
 }
 
 const TypeInfoSchema = z.custom<TypeInfo>((val) => {
@@ -61,6 +62,7 @@ export class Heap {
             type,
             refCount: 1,
             isMutable,
+            arrayLowerBound: this.computeArrayLowerBound(type),
         };
 
         this.memory.set(address, obj);
@@ -117,6 +119,17 @@ export class Heap {
         return ok(obj);
     }
 
+    readUnsafe(address: number): HeapObject {
+        if (address === NULL_POINTER) {
+            throw new RuntimeError("Null pointer dereference");
+        }
+        const obj = this.memory.get(address);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${address}`);
+        }
+        return obj;
+    }
+
     write(address: number, value: unknown, type: TypeInfo): HeapResult<void> {
         if (address === NULL_POINTER) {
             return err(new RuntimeError("Cannot write to null pointer"));
@@ -133,6 +146,20 @@ export class Heap {
 
         obj.value = this.deepCopyValue(value, type, true);
         return ok(undefined);
+    }
+
+    writeUnsafe(address: number, value: unknown, type: TypeInfo): void {
+        if (address === NULL_POINTER) {
+            throw new RuntimeError("Cannot write to null pointer");
+        }
+        const obj = this.memory.get(address);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${address}`);
+        }
+        if (!obj.isMutable) {
+            throw new RuntimeError("Cannot modify constant");
+        }
+        obj.value = this.deepCopyValue(value, type, true);
     }
 
     incrementRef(address: number): void {
@@ -166,6 +193,20 @@ export class Heap {
         return ok(undefined);
     }
 
+    decrementRefUnsafe(address: number): void {
+        if (address === NULL_POINTER) {
+            return;
+        }
+        const obj = this.memory.get(address);
+        if (!obj) return;
+        obj.refCount--;
+        if (obj.refCount <= 0) {
+            this.deallocateChildren(obj.value, obj.type);
+            this.memory.delete(address);
+            this.freeList.push(address);
+        }
+    }
+
     isNullPointer(address: number): boolean {
         return address === NULL_POINTER;
     }
@@ -193,8 +234,7 @@ export class Heap {
             return err(new RuntimeError("Array access on non-array value"));
         }
 
-        const arrayType = arrayResult.value.type;
-        const lowerBound = this.getArrayLowerBound(arrayType);
+        const lowerBound = this.getArrayLowerBound(arrayResult.value);
 
         if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
             return err(new RuntimeError(`Array index out of bounds: ${index}`));
@@ -208,7 +248,37 @@ export class Heap {
         return ok(elementAddress);
     }
 
-    private getArrayLowerBound(type: TypeInfo): number {
+    readElementAddressUnsafe(arrayAddress: number, index: number): number {
+        if (arrayAddress === NULL_POINTER) {
+            throw new RuntimeError("Null pointer dereference");
+        }
+        const obj = this.memory.get(arrayAddress);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${arrayAddress}`);
+        }
+        const arrayValue = obj.value;
+        if (!Array.isArray(arrayValue)) {
+            throw new RuntimeError("Array access on non-array value");
+        }
+        const lowerBound = this.getArrayLowerBound(obj);
+        if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
+            throw new RuntimeError(`Array index out of bounds: ${index}`);
+        }
+        const elementAddress: unknown = arrayValue[index - lowerBound];
+        if (typeof elementAddress !== "number") {
+            throw new RuntimeError("Invalid array element address");
+        }
+        return elementAddress;
+    }
+
+    private getArrayLowerBound(obj: HeapObject): number {
+        if (obj.arrayLowerBound !== undefined) {
+            return obj.arrayLowerBound;
+        }
+        return 1;
+    }
+
+    private computeArrayLowerBound(type: TypeInfo): number | undefined {
         if (typeof type === "object" && type !== null && "bounds" in type) {
             const arrayType = type as { bounds: unknown[] };
             if (arrayType.bounds.length > 0) {
@@ -225,7 +295,7 @@ export class Heap {
                 }
             }
         }
-        return 1;
+        return undefined;
     }
 
     readFieldAddress(recordAddress: number, field: string): HeapResult<number> {
@@ -247,6 +317,25 @@ export class Heap {
         return ok(fieldAddress);
     }
 
+    readFieldAddressUnsafe(recordAddress: number, field: string): number {
+        if (recordAddress === NULL_POINTER) {
+            throw new RuntimeError("Null pointer dereference");
+        }
+        const obj = this.memory.get(recordAddress);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${recordAddress}`);
+        }
+        const recordValue = obj.value;
+        if (!isRecord(recordValue)) {
+            throw new RuntimeError("Record access on non-record value");
+        }
+        const fieldAddress = recordValue[field];
+        if (typeof fieldAddress !== "number") {
+            throw new RuntimeError(`Invalid field address for '${field}'`);
+        }
+        return fieldAddress;
+    }
+
     readAtAddress(address: number): HeapResult<unknown> {
         const result = this.read(address);
         if (result.isErr()) {
@@ -255,8 +344,16 @@ export class Heap {
         return ok(result.value.value);
     }
 
+    readAtAddressUnsafe(address: number): unknown {
+        return this.readUnsafe(address).value;
+    }
+
     writeAtAddress(address: number, value: unknown, type: TypeInfo): HeapResult<void> {
         return this.write(address, value, type);
+    }
+
+    writeAtAddressUnsafe(address: number, value: unknown, type: TypeInfo): void {
+        this.writeUnsafe(address, value, type);
     }
 
     deepCopyValue(value: unknown, type: TypeInfo, fromHeap: boolean = false): unknown {

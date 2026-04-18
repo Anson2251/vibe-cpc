@@ -349,10 +349,7 @@ export class Environment {
 
     disposeScope(): void {
         for (const atom of this.variables.values()) {
-            const decResult = this.heap.decrementRef(atom.getAddress());
-            if (decResult.isErr()) {
-                throw decResult.error;
-            }
+            this.heap.decrementRefUnsafe(atom.getAddress());
         }
         this.variables.clear();
     }

@@ -268,6 +268,7 @@ export class Evaluator {
     private namespaceImports: Map<string, ImportInfo> = new Map();
     private classDefinitions: Map<string, ClassTypeInfo> = new Map();
     private classMethodBodies: Map<string, Map<string, RuntimeMethodInfo>> = new Map();
+    private resolvedClassCache: Map<string, ClassTypeInfo> = new Map();
 
     constructor(io: IOInterface, strictMode: boolean = false) {
         this.io = io;
@@ -303,34 +304,21 @@ export class Evaluator {
     }
 
     evaluateProgramR(node: ProgramNode): RuntimeAsyncResult<unknown> {
-        let result: unknown = undefined;
-        let chain: RuntimeAsyncResult<void> = ResultAsync.fromPromise(
-            Promise.resolve(undefined),
-            () =>
-                new RuntimeError(
-                    "Unexpected evaluator initialization failure",
-                    node.line,
-                    node.column,
-                ),
+        return ResultAsync.fromPromise(this.evaluateProgramImpl(node), (error: unknown) =>
+            toRuntimeError(error, node.line, node.column),
         );
+    }
 
+    private async evaluateProgramImpl(node: ProgramNode): Promise<unknown> {
+        let result: unknown = undefined;
         for (const statement of node.body) {
-            chain = chain.andThen(() =>
-                this.executeStatementR(statement).map((value) => {
-                    result = value;
-                }),
-            );
+            result = await this.executeStatement(statement);
         }
-
-        return chain.map(() => result);
+        return result;
     }
 
     async evaluateProgram(node: ProgramNode): Promise<unknown> {
-        const result = await this.evaluateProgramR(node);
-        if (result.isErr()) {
-            throw result.error;
-        }
-        return result.value;
+        return this.evaluateProgramImpl(node);
     }
 
     evaluateR(node: ASTNode): RuntimeAsyncResult<unknown> {
@@ -860,10 +848,7 @@ export class Evaluator {
 
             VariableAtomFactory.validateValue(elementType, value);
 
-            const writeResult = this.heap.write(address, value, elementType);
-            if (writeResult.isErr()) {
-                throw writeResult.error;
-            }
+            this.heap.writeUnsafe(address, value, elementType);
         } else if (isMemberAccessNode(node.target)) {
             const memberAccess = node.target;
             const declaredParentType = this.resolveMemberPathType(memberAccess.object);
@@ -884,10 +869,7 @@ export class Evaluator {
             VariableAtomFactory.validateValue(fieldType, value);
 
             const address = await this.resolveTargetAddress(node.target);
-            const writeResult = this.heap.write(address, value, fieldType);
-            if (writeResult.isErr()) {
-                throw writeResult.error;
-            }
+            this.heap.writeUnsafe(address, value, fieldType);
         } else if (isPointerDereferenceNode(node.target)) {
             const ptrValue = await this.evaluate(node.target.pointer);
             if (ptrValue === null || ptrValue === undefined) {
@@ -916,10 +898,7 @@ export class Evaluator {
 
             VariableAtomFactory.validateValue(targetType, value);
 
-            const writeResult = this.heap.write(ptrValue, value, targetType);
-            if (writeResult.isErr()) {
-                throw writeResult.error;
-            }
+            this.heap.writeUnsafe(ptrValue, value, targetType);
         } else {
             throw new RuntimeError("Invalid assignment target", node.line, node.column);
         }
@@ -1259,10 +1238,7 @@ export class Evaluator {
 
                     VariableAtomFactory.validateValue(elementType, value);
 
-                    const writeResult = this.heap.write(address, value, elementType);
-                    if (writeResult.isErr()) {
-                        throw writeResult.error;
-                    }
+                    this.heap.writeUnsafe(address, value, elementType);
                     return okAsync(undefined);
                 } catch (error) {
                     return errAsync(toRuntimeError(error, line, column));
@@ -1398,12 +1374,21 @@ export class Evaluator {
     }
 
     private resolveFullClassDefinition(className: string): ClassTypeInfo | undefined {
+        const cached = this.resolvedClassCache.get(className);
+        if (cached) return cached;
+
+        const result = this.computeFullClassDefinition(className);
+        if (result) this.resolvedClassCache.set(className, result);
+        return result;
+    }
+
+    private computeFullClassDefinition(className: string): ClassTypeInfo | undefined {
         const classDef = this.classDefinitions.get(className);
         if (!classDef) return undefined;
 
         if (!classDef.inherits) return classDef;
 
-        const parentDef = this.resolveFullClassDefinition(classDef.inherits);
+        const parentDef = this.computeFullClassDefinition(classDef.inherits);
         if (!parentDef) return classDef;
 
         const mergedFields: Record<string, TypeInfo> = { ...parentDef.fields, ...classDef.fields };
@@ -1537,10 +1522,10 @@ export class Evaluator {
             const fields: string[] = [];
             for (const [key, addr] of Object.entries(value)) {
                 if (typeof addr === "number") {
-                    const result = this.heap.read(addr);
-                    if (result.isOk()) {
-                        fields.push(`${key}=${this.serializeRecord(result.value.value)}`);
-                    }
+                    try {
+                        const obj = this.heap.readUnsafe(addr);
+                        fields.push(`${key}=${this.serializeRecord(obj.value)}`);
+                    } catch {}
                 } else {
                     fields.push(`${key}=${this.serializeRecord(addr)}`);
                 }
@@ -1550,10 +1535,10 @@ export class Evaluator {
         if (Array.isArray(value)) {
             const items = value.map((addr) => {
                 if (typeof addr === "number") {
-                    const result = this.heap.read(addr);
-                    if (result.isOk()) {
-                        return this.serializeRecord(result.value.value);
-                    }
+                    try {
+                        const obj = this.heap.readUnsafe(addr);
+                        return this.serializeRecord(obj.value);
+                    } catch {}
                 }
                 return String(addr);
             });
@@ -1632,9 +1617,9 @@ export class Evaluator {
             if (key in parsed) {
                 const addr = template[key];
                 if (typeof addr === "number") {
-                    const heapResult = this.heap.read(addr);
-                    if (heapResult.isOk()) {
-                        const currentValue = heapResult.value.value;
+                    try {
+                        const heapObj = this.heap.readUnsafe(addr);
+                        const currentValue = heapObj.value;
                         const rawValue = parsed[key];
                         let convertedValue: unknown;
                         if (typeof currentValue === "number") {
@@ -1644,15 +1629,8 @@ export class Evaluator {
                         } else {
                             convertedValue = rawValue;
                         }
-                        const writeResult = this.heap.write(
-                            addr,
-                            convertedValue,
-                            heapResult.value.type,
-                        );
-                        if (writeResult.isErr()) {
-                            throw writeResult.error;
-                        }
-                    }
+                        this.heap.writeUnsafe(addr, convertedValue, heapObj.type);
+                    } catch {}
                 }
             }
         }
@@ -1678,11 +1656,7 @@ export class Evaluator {
 
     private async evaluateArrayAccess(node: ArrayAccessNode): Promise<unknown> {
         const address = await this.resolveTargetAddress(node);
-        const result = this.heap.read(address);
-        if (result.isErr()) {
-            throw result.error;
-        }
-        return result.value.value;
+        return this.heap.readUnsafe(address).value;
     }
 
     private async tryObjectMethodCall(
@@ -1699,12 +1673,13 @@ export class Evaluator {
             return { handled: false };
         }
 
-        const heapResult = this.heap.read(objValue);
-        if (heapResult.isErr()) {
+        let objType: TypeInfo;
+        try {
+            objType = this.heap.readUnsafe(objValue).type;
+        } catch {
             return { handled: false };
         }
 
-        const objType = heapResult.value.type;
         if (typeof objType !== "object" || objType === null || !("name" in objType)) {
             return { handled: false };
         }
@@ -1938,15 +1913,8 @@ export class Evaluator {
     private async evaluateMemberAccess(node: MemberAccessNode): Promise<unknown> {
         const parentAddress = await this.resolveTargetAddress(node.object);
         this.checkFieldVisibility(parentAddress, node.field, node.line, node.column);
-        const fieldAddrResult = this.heap.readFieldAddress(parentAddress, node.field);
-        if (fieldAddrResult.isErr()) {
-            throw fieldAddrResult.error;
-        }
-        const result = this.heap.read(fieldAddrResult.value);
-        if (result.isErr()) {
-            throw result.error;
-        }
-        return result.value.value;
+        const fieldAddr = this.heap.readFieldAddressUnsafe(parentAddress, node.field);
+        return this.heap.readUnsafe(fieldAddr).value;
     }
 
     private resolveMemberPathType(expression: ExpressionNode): UserDefinedTypeInfo | undefined {
@@ -1959,9 +1927,8 @@ export class Evaluator {
             if (typeInfo === PseudocodeType.INTEGER && this.environment.has(expression.name)) {
                 const varValue = this.environment.get(expression.name);
                 if (typeof varValue === "number") {
-                    const heapResult = this.heap.read(varValue);
-                    if (heapResult.isOk()) {
-                        const objType = heapResult.value.type;
+                    try {
+                        const objType = this.heap.readUnsafe(varValue).type;
                         if (
                             typeof objType === "object" &&
                             objType !== null &&
@@ -1969,7 +1936,7 @@ export class Evaluator {
                         ) {
                             return objType as UserDefinedTypeInfo;
                         }
-                    }
+                    } catch {}
                 }
             }
 
@@ -2203,16 +2170,18 @@ export class Evaluator {
         classDef: ClassTypeInfo,
         env: Environment,
     ): void {
-        const heapResult = this.heap.read(objectAddress);
-        if (heapResult.isErr()) return;
+        let objectValue: unknown;
+        try {
+            objectValue = this.heap.readUnsafe(objectAddress).value;
+        } catch {
+            return;
+        }
 
-        const objectValue = heapResult.value.value;
         if (typeof objectValue !== "object" || objectValue === null) return;
 
         for (const [fieldName, fieldType] of Object.entries(classDef.fields)) {
-            const fieldAddress = this.heap.readFieldAddress(objectAddress, fieldName);
-            if (fieldAddress.isErr()) continue;
-            env.defineByRef(fieldName, fieldType, fieldAddress.value);
+            const fieldAddress = this.heap.readFieldAddressUnsafe(objectAddress, fieldName);
+            env.defineByRef(fieldName, fieldType, fieldAddress);
         }
     }
 
@@ -2226,11 +2195,8 @@ export class Evaluator {
             );
         }
 
-        const selfHeapObj = this.heap.read(selfAddress);
-        if (selfHeapObj.isErr()) {
-            throw selfHeapObj.error;
-        }
-        const selfType = selfHeapObj.value.type;
+        const selfHeapObj = this.heap.readUnsafe(selfAddress);
+        const selfType = selfHeapObj.type;
         if (typeof selfType !== "object" || !("name" in selfType)) {
             throw new RuntimeError(
                 "SELF does not refer to a class instance",
@@ -2326,12 +2292,9 @@ export class Evaluator {
             throw new RuntimeError("Cannot dereference non-pointer value", node.line, node.column);
         }
 
-        const heapResult = this.heap.read(ptrValue);
-        if (heapResult.isErr()) {
-            throw heapResult.error;
-        }
+        const heapResult = this.heap.readUnsafe(ptrValue);
 
-        return heapResult.value.value;
+        return heapResult.value;
     }
 
     private async evaluateAddressOf(node: AddressOfNode): Promise<number> {
@@ -2343,21 +2306,21 @@ export class Evaluator {
             const atom = this.environment.getAtom(target.name);
             const varAddress = atom.getAddress();
 
-            const heapResult = this.heap.read(varAddress);
-            if (heapResult.isOk()) {
-                const varValue = heapResult.value.value;
+            try {
+                const varValue = this.heap.readUnsafe(varAddress).value;
                 if (typeof varValue === "number") {
-                    const refResult = this.heap.read(varValue);
-                    if (
-                        refResult.isOk() &&
-                        typeof refResult.value.value === "object" &&
-                        refResult.value.value !== null &&
-                        !Array.isArray(refResult.value.value)
-                    ) {
-                        return varValue;
-                    }
+                    try {
+                        const refObj = this.heap.readUnsafe(varValue);
+                        if (
+                            typeof refObj.value === "object" &&
+                            refObj.value !== null &&
+                            !Array.isArray(refObj.value)
+                        ) {
+                            return varValue;
+                        }
+                    } catch {}
                 }
-            }
+            } catch {}
 
             return varAddress;
         }
@@ -2371,22 +2334,15 @@ export class Evaluator {
             );
 
             const arrayAddress = arrayAtom.getAddress();
-            const elemAddrResult = this.heap.readElementAddress(arrayAddress, indices[0]);
-            if (elemAddrResult.isErr()) {
-                throw elemAddrResult.error;
-            }
+            const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0]);
 
             if (indices.length === 1) {
-                return elemAddrResult.value;
+                return elemAddr;
             }
 
-            let currentAddress = elemAddrResult.value;
+            let currentAddress = elemAddr;
             for (let i = 1; i < indices.length; i++) {
-                const subElemResult = this.heap.readElementAddress(currentAddress, indices[i]);
-                if (subElemResult.isErr()) {
-                    throw subElemResult.error;
-                }
-                currentAddress = subElemResult.value;
+                currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i]);
             }
             return currentAddress;
         }
@@ -2394,11 +2350,7 @@ export class Evaluator {
         if (isMemberAccessNode(target)) {
             const parentAddress = await this.resolveTargetAddress(target.object);
             this.checkFieldVisibility(parentAddress, target.field, target.line, target.column);
-            const fieldAddrResult = this.heap.readFieldAddress(parentAddress, target.field);
-            if (fieldAddrResult.isErr()) {
-                throw fieldAddrResult.error;
-            }
-            return fieldAddrResult.value;
+            return this.heap.readFieldAddressUnsafe(parentAddress, target.field);
         }
 
         if (isPointerDereferenceNode(target)) {
@@ -2426,10 +2378,13 @@ export class Evaluator {
         line?: number,
         column?: number,
     ): void {
-        const heapResult = this.heap.read(parentAddress);
-        if (heapResult.isErr()) return;
+        let objType: TypeInfo;
+        try {
+            objType = this.heap.readUnsafe(parentAddress).type;
+        } catch {
+            return;
+        }
 
-        const objType = heapResult.value.type;
         if (typeof objType !== "object" || objType === null || !("name" in objType)) return;
 
         const className = (objType as { name: string }).name;

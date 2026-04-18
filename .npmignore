@@ -4,6 +4,7 @@ docs/
 examples/
 scripts/
 build/
+test-runner-profile/
 
 .*
 *.tgz

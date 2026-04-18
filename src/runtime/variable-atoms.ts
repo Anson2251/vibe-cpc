@@ -66,19 +66,7 @@ export class VariableAtom {
     }
 
     getValue(heap: Heap): unknown {
-        if (this.isPointerType()) {
-            const result = heap.read(this.address);
-            if (result.isErr()) {
-                throw result.error;
-            }
-            return result.value.value;
-        }
-
-        const result = heap.read(this.address);
-        if (result.isErr()) {
-            throw result.error;
-        }
-        return result.value.value;
+        return heap.readUnsafe(this.address).value;
     }
 
     setValue(heap: Heap, value: unknown): void {
@@ -94,15 +82,6 @@ export class VariableAtom {
 
     getAddress(): number {
         return this.address;
-    }
-
-    private isPointerType(): boolean {
-        return (
-            typeof this.type === "object" &&
-            this.type !== null &&
-            "kind" in this.type &&
-            this.type.kind === "POINTER"
-        );
     }
 
     static create(
