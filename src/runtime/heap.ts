@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { Result, ok, err } from "neverthrow";
 import { PseudocodeType, ArrayTypeInfo, UserDefinedTypeInfo, TypeInfo } from "../types";
 import { RuntimeError } from "../errors";
 
@@ -34,8 +33,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export type HeapResult<T> = Result<T, RuntimeError>;
-
 export class Heap {
     private memory: Map<number, HeapObject> = new Map();
     private freeList: number[] = [];
@@ -69,14 +66,14 @@ export class Heap {
         return address;
     }
 
-    deallocate(address: number): HeapResult<void> {
+    deallocate(address: number): void {
         if (address === NULL_POINTER) {
-            return ok(undefined);
+            return;
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            return err(new RuntimeError(`Invalid memory address: ${address}`));
+            throw new RuntimeError(`Invalid memory address: ${address}`);
         }
 
         obj.refCount--;
@@ -85,8 +82,6 @@ export class Heap {
             this.memory.delete(address);
             this.freeList.push(address);
         }
-
-        return ok(undefined);
     }
 
     private deallocateChildren(value: unknown, type: TypeInfo): void {
@@ -107,22 +102,11 @@ export class Heap {
         }
     }
 
-    read(address: number): HeapResult<HeapObject> {
-        if (address === NULL_POINTER) {
-            return err(new RuntimeError("Null pointer dereference"));
-        }
-
-        const obj = this.memory.get(address);
-        if (!obj) {
-            return err(new RuntimeError(`Invalid memory address: ${address}`));
-        }
-        return ok(obj);
-    }
-
-    readUnsafe(address: number): HeapObject {
+    read(address: number): HeapObject {
         if (address === NULL_POINTER) {
             throw new RuntimeError("Null pointer dereference");
         }
+
         const obj = this.memory.get(address);
         if (!obj) {
             throw new RuntimeError(`Invalid memory address: ${address}`);
@@ -130,35 +114,20 @@ export class Heap {
         return obj;
     }
 
-    write(address: number, value: unknown, type: TypeInfo): HeapResult<void> {
-        if (address === NULL_POINTER) {
-            return err(new RuntimeError("Cannot write to null pointer"));
-        }
-
-        const obj = this.memory.get(address);
-        if (!obj) {
-            return err(new RuntimeError(`Invalid memory address: ${address}`));
-        }
-
-        if (!obj.isMutable) {
-            return err(new RuntimeError("Cannot modify constant"));
-        }
-
-        obj.value = this.deepCopyValue(value, type, true);
-        return ok(undefined);
-    }
-
-    writeUnsafe(address: number, value: unknown, type: TypeInfo): void {
+    write(address: number, value: unknown, type: TypeInfo): void {
         if (address === NULL_POINTER) {
             throw new RuntimeError("Cannot write to null pointer");
         }
+
         const obj = this.memory.get(address);
         if (!obj) {
             throw new RuntimeError(`Invalid memory address: ${address}`);
         }
+
         if (!obj.isMutable) {
             throw new RuntimeError("Cannot modify constant");
         }
+
         obj.value = this.deepCopyValue(value, type, true);
     }
 
@@ -173,14 +142,14 @@ export class Heap {
         }
     }
 
-    decrementRef(address: number): HeapResult<void> {
+    decrementRef(address: number): void {
         if (address === NULL_POINTER) {
-            return ok(undefined);
+            return;
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            return err(new RuntimeError(`Invalid memory address: ${address}`));
+            throw new RuntimeError(`Invalid memory address: ${address}`);
         }
 
         obj.refCount--;
@@ -189,16 +158,16 @@ export class Heap {
             this.memory.delete(address);
             this.freeList.push(address);
         }
-
-        return ok(undefined);
     }
 
     decrementRefUnsafe(address: number): void {
         if (address === NULL_POINTER) {
             return;
         }
+
         const obj = this.memory.get(address);
         if (!obj) return;
+
         obj.refCount--;
         if (obj.refCount <= 0) {
             this.deallocateChildren(obj.value, obj.type);
@@ -223,137 +192,105 @@ export class Heap {
         return new Map(this.memory);
     }
 
-    readElementAddress(arrayAddress: number, index: number): HeapResult<number> {
-        const arrayResult = this.read(arrayAddress);
-        if (arrayResult.isErr()) {
-            return err(arrayResult.error);
-        }
-
-        const arrayValue = arrayResult.value.value;
-        if (!Array.isArray(arrayValue)) {
-            return err(new RuntimeError("Array access on non-array value"));
-        }
-
-        const lowerBound = this.getArrayLowerBound(arrayResult.value);
-
-        if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
-            return err(new RuntimeError(`Array index out of bounds: ${index}`));
-        }
-
-        const elementAddress: unknown = arrayValue[index - lowerBound];
-        if (typeof elementAddress !== "number") {
-            return err(new RuntimeError("Invalid array element address"));
-        }
-
-        return ok(elementAddress);
-    }
-
-    readElementAddressUnsafe(arrayAddress: number, index: number): number {
-        if (arrayAddress === NULL_POINTER) {
-            throw new RuntimeError("Null pointer dereference");
-        }
-        const obj = this.memory.get(arrayAddress);
-        if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${arrayAddress}`);
-        }
+    readElementAddress(arrayAddress: number, index: number): number {
+        const obj = this.read(arrayAddress);
         const arrayValue = obj.value;
         if (!Array.isArray(arrayValue)) {
             throw new RuntimeError("Array access on non-array value");
         }
+
         const lowerBound = this.getArrayLowerBound(obj);
+
         if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
             throw new RuntimeError(`Array index out of bounds: ${index}`);
         }
+
         const elementAddress: unknown = arrayValue[index - lowerBound];
         if (typeof elementAddress !== "number") {
             throw new RuntimeError("Invalid array element address");
         }
+
         return elementAddress;
     }
 
-    private getArrayLowerBound(obj: HeapObject): number {
-        if (obj.arrayLowerBound !== undefined) {
-            return obj.arrayLowerBound;
-        }
-        return 1;
-    }
-
-    private computeArrayLowerBound(type: TypeInfo): number | undefined {
-        if (typeof type === "object" && type !== null && "bounds" in type) {
-            const arrayType = type as { bounds: unknown[] };
-            if (arrayType.bounds.length > 0) {
-                const firstBound = arrayType.bounds[0];
-                if (
-                    typeof firstBound === "object" &&
-                    firstBound !== null &&
-                    "lower" in firstBound
-                ) {
-                    const bound = firstBound as { lower: unknown };
-                    if (typeof bound.lower === "number") {
-                        return bound.lower;
-                    }
-                }
-            }
-        }
-        return undefined;
-    }
-
-    readFieldAddress(recordAddress: number, field: string): HeapResult<number> {
-        const recordResult = this.read(recordAddress);
-        if (recordResult.isErr()) {
-            return err(recordResult.error);
-        }
-
-        const recordValue = recordResult.value.value;
-        if (!isRecord(recordValue)) {
-            return err(new RuntimeError("Record access on non-record value"));
-        }
-
-        const fieldAddress = recordValue[field];
-        if (typeof fieldAddress !== "number") {
-            return err(new RuntimeError(`Invalid field address for '${field}'`));
-        }
-
-        return ok(fieldAddress);
-    }
-
-    readFieldAddressUnsafe(recordAddress: number, field: string): number {
-        if (recordAddress === NULL_POINTER) {
-            throw new RuntimeError("Null pointer dereference");
-        }
-        const obj = this.memory.get(recordAddress);
-        if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${recordAddress}`);
-        }
+    readFieldAddress(recordAddress: number, field: string): number {
+        const obj = this.read(recordAddress);
         const recordValue = obj.value;
         if (!isRecord(recordValue)) {
             throw new RuntimeError("Record access on non-record value");
         }
+
         const fieldAddress = recordValue[field];
         if (typeof fieldAddress !== "number") {
             throw new RuntimeError(`Invalid field address for '${field}'`);
         }
+
         return fieldAddress;
     }
 
-    readAtAddress(address: number): HeapResult<unknown> {
-        const result = this.read(address);
-        if (result.isErr()) {
-            return err(result.error);
+    readAtAddress(address: number): unknown {
+        return this.read(address).value;
+    }
+
+    writeAtAddress(address: number, value: unknown, type: TypeInfo): void {
+        this.write(address, value, type);
+    }
+
+    readUnsafe(address: number): HeapObject {
+        const obj = this.memory.get(address);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${address}`);
         }
-        return ok(result.value.value);
+        return obj;
     }
 
-    readAtAddressUnsafe(address: number): unknown {
-        return this.readUnsafe(address).value;
+    writeUnsafe(address: number, value: unknown, type: TypeInfo): void {
+        const obj = this.memory.get(address);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${address}`);
+        }
+
+        if (!obj.isMutable) {
+            throw new RuntimeError("Cannot modify constant");
+        }
+
+        obj.value = this.deepCopyValue(value, type, true);
     }
 
-    writeAtAddress(address: number, value: unknown, type: TypeInfo): HeapResult<void> {
-        return this.write(address, value, type);
+    readElementAddressUnsafe(arrayAddress: number, index: number): number {
+        const obj = this.readUnsafe(arrayAddress);
+        const arrayValue = obj.value;
+        if (!Array.isArray(arrayValue)) {
+            throw new RuntimeError("Array access on non-array value");
+        }
+
+        const lowerBound = this.getArrayLowerBound(obj);
+
+        if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
+            throw new RuntimeError(`Array index out of bounds: ${index}`);
+        }
+
+        const elementAddress: unknown = arrayValue[index - lowerBound];
+        if (typeof elementAddress !== "number") {
+            throw new RuntimeError("Invalid array element address");
+        }
+
+        return elementAddress;
     }
 
-    writeAtAddressUnsafe(address: number, value: unknown, type: TypeInfo): void {
-        this.writeUnsafe(address, value, type);
+    readFieldAddressUnsafe(recordAddress: number, field: string): number {
+        const obj = this.readUnsafe(recordAddress);
+        const recordValue = obj.value;
+        if (!isRecord(recordValue)) {
+            throw new RuntimeError("Record access on non-record value");
+        }
+
+        const fieldAddress = recordValue[field];
+        if (typeof fieldAddress !== "number") {
+            throw new RuntimeError(`Invalid field address for '${field}'`);
+        }
+
+        return fieldAddress;
     }
 
     deepCopyValue(value: unknown, type: TypeInfo, fromHeap: boolean = false): unknown {
@@ -500,7 +437,19 @@ export class Heap {
         }
 
         if (typeof type === "object" && "elementType" in type) {
-            return [];
+            const size = type.bounds.reduce((acc: number, b: { lower: number | string; upper: number | string }) => {
+                const lower = typeof b.lower === "number" ? b.lower : 1;
+                const upper = typeof b.upper === "number" ? b.upper : 1;
+                return acc * (upper - lower + 1);
+            }, 1);
+            if (type.bounds.length > 1) {
+                const subArrayType: ArrayTypeInfo = {
+                    elementType: type.elementType,
+                    bounds: type.bounds.slice(1),
+                };
+                return Array.from({ length: size }, () => this.getDefaultValue(subArrayType));
+            }
+            return Array.from({ length: size }, () => this.getDefaultValue(type.elementType));
         }
 
         if (typeof type === "object" && "fields" in type) {
@@ -511,6 +460,33 @@ export class Heap {
             return result;
         }
 
+        return undefined;
+    }
+
+    private getArrayLowerBound(obj: HeapObject): number {
+        if (obj.arrayLowerBound !== undefined) {
+            return obj.arrayLowerBound;
+        }
+        return 1;
+    }
+
+    private computeArrayLowerBound(type: TypeInfo): number | undefined {
+        if (typeof type === "object" && type !== null && "bounds" in type) {
+            const arrayType = type as { bounds: unknown[] };
+            if (arrayType.bounds.length > 0) {
+                const firstBound = arrayType.bounds[0];
+                if (
+                    typeof firstBound === "object" &&
+                    firstBound !== null &&
+                    "lower" in firstBound
+                ) {
+                    const bound = firstBound as { lower: unknown };
+                    if (typeof bound.lower === "number") {
+                        return bound.lower;
+                    }
+                }
+            }
+        }
         return undefined;
     }
 }

@@ -176,10 +176,7 @@ export class Environment {
 
             VariableAtomFactory.validateValue(atom.type, value);
 
-            const writeResult = this.heap.write(atom.getAddress(), value, atom.type);
-            if (writeResult.isErr()) {
-                throw writeResult.error;
-            }
+            this.heap.write(atom.getAddress(), value, atom.type);
 
             return;
         }
@@ -204,10 +201,7 @@ export class Environment {
             this.heap.incrementRef(sourceAddress);
             atom.address = sourceAddress;
 
-            const decResult = this.heap.decrementRef(oldAddress);
-            if (decResult.isErr()) {
-                throw decResult.error;
-            }
+            this.heap.decrementRef(oldAddress);
 
             return;
         }

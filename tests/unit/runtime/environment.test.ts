@@ -57,24 +57,19 @@ describe("Environment", () => {
             env.define("src", arrayType, [10, 20, 30]);
             const srcValue = env.getAtom("src").getAddress();
             const srcObj = heap.read(srcValue);
-            expect(srcObj.isOk()).toBe(true);
-            if (!srcObj.isOk()) return;
 
             const child = env.createChild();
-            child.define("copy", arrayType, srcObj.value.value, false, true);
+            child.define("copy", arrayType, srcObj.value, false, true);
 
             const copyValue = child.getAtom("copy").getAddress();
             const copyObj = heap.read(copyValue);
-            expect(copyObj.isOk()).toBe(true);
-            if (copyObj.isOk()) {
-                const stored = copyObj.value.value as number[];
-                const elem0 = heap.read(stored[0] as number);
-                const elem1 = heap.read(stored[1] as number);
-                const elem2 = heap.read(stored[2] as number);
-                expect(elem0.isOk() && elem0.value.value).toBe(10);
-                expect(elem1.isOk() && elem1.value.value).toBe(20);
-                expect(elem2.isOk() && elem2.value.value).toBe(30);
-            }
+            const stored = copyObj.value as number[];
+            const elem0 = heap.read(stored[0] as number);
+            const elem1 = heap.read(stored[1] as number);
+            const elem2 = heap.read(stored[2] as number);
+            expect(elem0.value).toBe(10);
+            expect(elem1.value).toBe(20);
+            expect(elem2.value).toBe(30);
         });
 
         test("fromHeap=true produces independent copy of array", () => {
@@ -88,20 +83,15 @@ describe("Environment", () => {
             env.define("src", arrayType, [10, 20, 30]);
             const srcAddr = env.getAtom("src").getAddress();
             const srcObj = heap.read(srcAddr);
-            expect(srcObj.isOk()).toBe(true);
-            if (!srcObj.isOk()) return;
 
             const child = env.createChild();
-            child.define("copy", arrayType, srcObj.value.value, false, true);
+            child.define("copy", arrayType, srcObj.value, false, true);
 
             child.assign("copy", [99, 99, 99]);
             const srcRead = heap.read(srcAddr);
-            expect(srcRead.isOk()).toBe(true);
-            if (srcRead.isOk()) {
-                const stored = srcRead.value.value as number[];
-                const elem0 = heap.read(stored[0] as number);
-                expect(elem0.isOk() && elem0.value.value).toBe(10);
-            }
+            const stored = srcRead.value as number[];
+            const elem0 = heap.read(stored[0] as number);
+            expect(elem0.value).toBe(10);
         });
 
         test("defines record from heap-read value with fromHeap=true", () => {
@@ -115,24 +105,19 @@ describe("Environment", () => {
             env.define("src", recordType, { name: "Alice", age: 30 });
             const srcAddr = env.getAtom("src").getAddress();
             const srcObj = heap.read(srcAddr);
-            expect(srcObj.isOk()).toBe(true);
-            if (!srcObj.isOk()) return;
 
             const child = env.createChild();
-            child.define("copy", recordType, srcObj.value.value, false, true);
+            child.define("copy", recordType, srcObj.value, false, true);
 
             const copyAddr = child.getAtom("copy").getAddress();
             const copyObj = heap.read(copyAddr);
-            expect(copyObj.isOk()).toBe(true);
-            if (copyObj.isOk()) {
-                const stored = copyObj.value.value as Record<string, unknown>;
-                const nameAddr = stored.name as number;
-                const ageAddr = stored.age as number;
-                const nameObj = heap.read(nameAddr);
-                const ageObj = heap.read(ageAddr);
-                expect(nameObj.isOk() && nameObj.value.value).toBe("Alice");
-                expect(ageObj.isOk() && ageObj.value.value).toBe(30);
-            }
+            const stored = copyObj.value as Record<string, unknown>;
+            const nameAddr = stored.name as number;
+            const ageAddr = stored.age as number;
+            const nameObj = heap.read(nameAddr);
+            const ageObj = heap.read(ageAddr);
+            expect(nameObj.value).toBe("Alice");
+            expect(ageObj.value).toBe(30);
         });
     });
 });

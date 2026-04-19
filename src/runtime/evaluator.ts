@@ -240,7 +240,7 @@ import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
 import builtInFunctions, { EXTENDED_BUILTIN_NAMES } from "./builtin-functions";
 import { RuntimeFileManager } from "./file-manager";
 import { FileOperationEvaluator } from "./file-operations-evaluator";
-import { ResultAsync, okAsync, errAsync } from "neverthrow";
+import { ResultAsync } from "neverthrow";
 import { RuntimeAsyncResult, toRuntimeError } from "../result";
 
 import { Environment, ExecutionContext, RoutineInfo } from "./environment";
@@ -249,6 +249,20 @@ import { VariableAtomFactory, VariableAtom } from "./variable-atoms";
 import { DebuggerController, DebugSnapshot, type DebugPauseReason } from "./debugger";
 import { Heap, NULL_POINTER } from "./heap";
 import type { ImportInfo } from "./linker";
+import {
+    resolveFullClassDefinition as resolveFullClassDefinitionHelper,
+    findMethodInHierarchy,
+    getDefaultValue as getDefaultValueHelper,
+    resolveArrayElementType as resolveArrayElementTypeHelper,
+} from "./oop-helpers";
+import {
+    serializeRecord as serializeRecordHelper,
+    parseRecordData as parseRecordDataHelper,
+    reconstructRecord as reconstructRecordHelper,
+} from "./record-serializer";
+import {
+    resolveType as resolveTypeHelper,
+} from "./type-resolver";
 
 export class Evaluator {
     private environment: Environment;
@@ -321,11 +335,9 @@ export class Evaluator {
         return this.evaluateProgramImpl(node);
     }
 
-    evaluateR(node: ASTNode): RuntimeAsyncResult<unknown> {
+    async evaluate(node: ASTNode): Promise<unknown> {
         if (!isEvaluatableNode(node)) {
-            return errAsync(
-                new RuntimeError(`Unknown node type: ${node.type}`, node.line, node.column),
-            );
+            throw new RuntimeError(`Unknown node type: ${node.type}`, node.line, node.column);
         }
 
         if (node.line !== undefined) {
@@ -337,311 +349,217 @@ export class Evaluator {
 
         switch (node.type) {
             case "VariableDeclaration":
-                return ResultAsync.fromPromise(
-                    this.evaluateVariableDeclaration(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateVariableDeclaration(node);
+                return undefined;
 
             case "DeclareStatement":
-                return ResultAsync.fromPromise(
-                    this.evaluateDeclareStatement(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateDeclareStatement(node);
+                return undefined;
 
             case "Assignment":
-                return ResultAsync.fromPromise(this.evaluateAssignment(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateAssignment(node);
+                return undefined;
 
             case "If":
-                return ResultAsync.fromPromise(this.evaluateIf(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateIf(node);
+                return undefined;
 
             case "Case":
-                return ResultAsync.fromPromise(this.evaluateCase(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateCase(node);
+                return undefined;
 
             case "For":
-                return ResultAsync.fromPromise(this.evaluateFor(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateFor(node);
+                return undefined;
 
             case "While":
-                return ResultAsync.fromPromise(this.evaluateWhile(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateWhile(node);
+                return undefined;
 
             case "Repeat":
-                return ResultAsync.fromPromise(this.evaluateRepeat(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateRepeat(node);
+                return undefined;
 
             case "ProcedureDeclaration":
-                return this.trySync(
-                    () => {
-                        this.evaluateProcedureDeclaration(node);
-                        return undefined;
-                    },
-                    node.line,
-                    node.column,
-                );
+                this.evaluateProcedureDeclaration(node);
+                return undefined;
 
             case "FunctionDeclaration":
-                return this.trySync(
-                    () => {
-                        this.evaluateFunctionDeclaration(node);
-                        return undefined;
-                    },
-                    node.line,
-                    node.column,
-                );
+                this.evaluateFunctionDeclaration(node);
+                return undefined;
 
             case "CallStatement":
-                return ResultAsync.fromPromise(this.evaluateCallStatement(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateCallStatement(node);
+                return undefined;
 
             case "Input":
-                return ResultAsync.fromPromise(this.evaluateInput(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateInput(node);
+                return undefined;
 
             case "Output":
-                return ResultAsync.fromPromise(this.evaluateOutput(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateOutput(node);
+                return undefined;
 
             case "Return":
-                return ResultAsync.fromPromise(this.evaluateReturn(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateReturn(node);
+                return undefined;
 
             case "OpenFile":
-                return this.fileOperations.openFileR(node).map(() => undefined);
+                await this.fileOperations.openFile(node);
+                return undefined;
 
             case "CloseFile":
-                return this.fileOperations.closeFileR(node).map(() => undefined);
+                await this.fileOperations.closeFile(node);
+                return undefined;
 
             case "ReadFile":
-                return this.fileOperations.readFileR(node).map(() => undefined);
+                await this.fileOperations.readFile(node);
+                return undefined;
 
             case "WriteFile":
-                return this.fileOperations.writeFileR(node).map(() => undefined);
+                await this.fileOperations.writeFile(node);
+                return undefined;
 
             case "Seek":
-                return this.fileOperations.seekR(node).map(() => undefined);
+                await this.fileOperations.seek(node);
+                return undefined;
 
             case "GetRecord":
-                return this.fileOperations.getRecordR(node).map(() => undefined);
+                await this.fileOperations.getRecord(node);
+                return undefined;
 
             case "PutRecord":
-                return this.fileOperations.putRecordR(node).map(() => undefined);
+                await this.fileOperations.putRecord(node);
+                return undefined;
 
             case "TypeDeclaration":
-                return this.trySync(
-                    () => {
-                        this.evaluateTypeDeclaration(node);
-                        return undefined;
-                    },
-                    node.line,
-                    node.column,
-                );
+                this.evaluateTypeDeclaration(node);
+                return undefined;
 
             case "SetDeclaration":
-                return ResultAsync.fromPromise(
-                    this.evaluateSetDeclaration(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateSetDeclaration(node);
+                return undefined;
 
             case "ClassDeclaration":
-                return this.trySync(
-                    () => {
-                        this.evaluateClassDeclaration(node);
-                        return undefined;
-                    },
-                    node.line,
-                    node.column,
-                );
+                this.evaluateClassDeclaration(node);
+                return undefined;
 
             case "MethodDeclaration":
-                return okAsync(undefined);
+                return undefined;
 
             case "SuperCall":
-                return ResultAsync.fromPromise(this.evaluateSuperCall(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateSuperCall(node);
+                return undefined;
 
             case "Debugger":
-                return ResultAsync.fromPromise(this.evaluateDebugger(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                ).map(() => undefined);
+                await this.evaluateDebugger(node);
+                return undefined;
 
             case "BinaryExpression":
-                return ResultAsync.fromPromise(
-                    this.evaluateBinaryExpression(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateBinaryExpression(node);
 
             case "UnaryExpression":
-                return ResultAsync.fromPromise(
-                    this.evaluateUnaryExpression(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateUnaryExpression(node);
 
             case "Identifier":
-                return this.trySync(() => this.evaluateIdentifier(node), node.line, node.column);
+                return this.evaluateIdentifier(node);
 
             case "Literal":
-                return this.trySync(() => this.evaluateLiteral(node), node.line, node.column);
+                return this.evaluateLiteral(node);
 
             case "ArrayAccess":
-                return ResultAsync.fromPromise(this.evaluateArrayAccess(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateArrayAccess(node);
 
             case "CallExpression":
-                return ResultAsync.fromPromise(
-                    this.evaluateCallExpression(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateCallExpression(node);
 
             case "MemberAccess":
-                return ResultAsync.fromPromise(this.evaluateMemberAccess(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateMemberAccess(node);
 
             case "NewExpression":
-                return ResultAsync.fromPromise(
-                    this.evaluateNewExpressionAsync(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateNewExpressionAsync(node);
 
             case "TypeCast":
-                return ResultAsync.fromPromise(this.evaluateTypeCast(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateTypeCast(node);
 
             case "SetLiteral":
-                return ResultAsync.fromPromise(this.evaluateSetLiteral(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateSetLiteral(node);
 
             case "PointerDereference":
-                return ResultAsync.fromPromise(
-                    this.evaluatePointerDereference(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluatePointerDereference(node);
 
             case "AddressOf":
-                return ResultAsync.fromPromise(this.evaluateAddressOf(node), (error: unknown) =>
-                    toRuntimeError(error, node.line, node.column),
-                );
+                return this.evaluateAddressOf(node);
 
             case "DisposeStatement":
-                return ResultAsync.fromPromise(
-                    this.evaluateDisposeStatement(node),
-                    (error: unknown) => toRuntimeError(error, node.line, node.column),
-                );
+                await this.evaluateDisposeStatement(node);
+                return undefined;
 
             case "ImportStatement":
                 if (this.strictMode) {
-                    return errAsync(
-                        new RuntimeError(
-                            "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
-                            node.line,
-                            node.column,
-                        ),
+                    throw new RuntimeError(
+                        "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
                     );
                 }
-                return okAsync(undefined);
+                return undefined;
 
             case "ImportExpression":
                 if (this.strictMode) {
-                    return errAsync(
-                        new RuntimeError(
-                            "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
-                            node.line,
-                            node.column,
-                        ),
+                    throw new RuntimeError(
+                        "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
                     );
                 }
-                return okAsync(undefined);
+                return undefined;
 
             case "ExportStatement":
                 if (this.strictMode) {
-                    return errAsync(
-                        new RuntimeError(
-                            "EXPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
-                            node.line,
-                            node.column,
-                        ),
+                    throw new RuntimeError(
+                        "EXPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
                     );
                 }
-                return okAsync(undefined);
+                return undefined;
         }
     }
 
-    async evaluate(node: ASTNode): Promise<unknown> {
-        const result = await this.evaluateR(node);
-        if (result.isErr()) {
-            throw result.error;
-        }
-        return result.value;
-    }
-
-    private trySync<T>(fn: () => T, line?: number, column?: number): RuntimeAsyncResult<T> {
-        try {
-            return okAsync(fn());
-        } catch (error) {
-            return errAsync(toRuntimeError(error, line, column));
-        }
-    }
-
-    private executeStatementR(statement: StatementNode): RuntimeAsyncResult<unknown> {
-        this.onStep?.();
-        return this.pauseForStepBeforeStatementR(statement).andThen(() =>
-            this.evaluateR(statement).orElse((error: RuntimeError) => {
-                if (this.debuggerController && error instanceof RuntimeError) {
-                    const snapshot = this.buildDebugSnapshot(
-                        "error",
-                        error.line ?? statement.line,
-                        error.column ?? statement.column,
-                    );
-                    snapshot.error = {
-                        message: error.message,
-                        line: error.line,
-                        column: error.column,
-                    };
-                    return ResultAsync.fromPromise(
-                        this.debuggerController.maybePause(snapshot),
-                        () => error,
-                    ).andThen(() => errAsync(error));
-                }
-                return errAsync(error);
-            }),
+    evaluateR(node: ASTNode): RuntimeAsyncResult<unknown> {
+        return ResultAsync.fromPromise(this.evaluate(node), (error: unknown) =>
+            toRuntimeError(error, node.line, node.column),
         );
     }
+
 
     private async executeStatement(statement: StatementNode): Promise<unknown> {
-        const result = await this.executeStatementR(statement);
-        if (result.isErr()) {
-            throw result.error;
-        }
-        return result.value;
-    }
+        this.onStep?.();
 
-    private pauseForStepBeforeStatementR(statement: StatementNode): RuntimeAsyncResult<void> {
-        if (!this.debuggerController) {
-            return okAsync(undefined);
+        if (this.debuggerController) {
+            const snapshot = this.buildDebugSnapshot("step", statement.line, statement.column);
+            await this.debuggerController.maybePause(snapshot);
         }
 
-        const snapshot = this.buildDebugSnapshot("step", statement.line, statement.column);
-        return ResultAsync.fromPromise(
-            this.debuggerController.maybePause(snapshot),
-            (error: unknown) => toRuntimeError(error, statement.line, statement.column),
-        );
+        try {
+            return await this.evaluate(statement);
+        } catch (error) {
+            if (this.debuggerController && error instanceof RuntimeError) {
+                const snapshot = this.buildDebugSnapshot(
+                    "error",
+                    error.line ?? statement.line,
+                    error.column ?? statement.column,
+                );
+                snapshot.error = {
+                    message: error.message,
+                    line: error.line,
+                    column: error.column,
+                };
+                await this.debuggerController.maybePause(snapshot);
+            }
+            throw error;
+        }
     }
 
     private buildDebugSnapshot(
@@ -704,7 +622,7 @@ export class Evaluator {
             resolvedType = this.resolveType(node.dataType, node.line, node.column);
         }
 
-        const finalValue = initialValue ?? this.getDefaultValue(resolvedType);
+        const finalValue = initialValue ?? this.getDefaultValue(resolvedType, node.line, node.column);
 
         this.environment.define(node.name, resolvedType, finalValue, node.isConstant);
     }
@@ -801,7 +719,7 @@ export class Evaluator {
         const resolvedType = this.resolveType(node.dataType, node.line, node.column);
         const initialValue = node.initialValue
             ? await this.evaluate(node.initialValue)
-            : this.getDefaultValue(resolvedType);
+            : this.getDefaultValue(resolvedType, node.line, node.column);
 
         this.environment.define(node.name, resolvedType, initialValue, node.isConstant);
     }
@@ -1201,53 +1119,52 @@ export class Evaluator {
         }
     }
 
+    private async assignToTarget(
+        target: ExpressionNode,
+        value: unknown,
+        line?: number,
+        column?: number,
+    ): Promise<void> {
+        if (isIdentifierNode(target)) {
+            this.environment.assign(target.name, value);
+            return;
+        }
+
+        if (isArrayAccessNode(target)) {
+            const address = await this.resolveTargetAddress(target);
+
+            let elementType: TypeInfo = PseudocodeType.INTEGER;
+            if (isIdentifierNode(target.array)) {
+                const typeInfo = this.environment.getType(target.array.name);
+                if (
+                    typeof typeInfo === "object" &&
+                    typeInfo !== null &&
+                    "elementType" in typeInfo
+                ) {
+                    elementType = this.resolveArrayElementType(
+                        typeInfo,
+                        target.indices.length,
+                    );
+                }
+            }
+
+            VariableAtomFactory.validateValue(elementType, value);
+
+            this.heap.writeUnsafe(address, value, elementType);
+            return;
+        }
+
+        throw new RuntimeError("Invalid assignment target", line, column);
+    }
+
     private assignToTargetR(
         target: ExpressionNode,
         value: unknown,
         line?: number,
         column?: number,
     ): RuntimeAsyncResult<void> {
-        if (isIdentifierNode(target)) {
-            try {
-                this.environment.assign(target.name, value);
-                return okAsync(undefined);
-            } catch (error) {
-                return errAsync(toRuntimeError(error, line, column));
-            }
-        }
-
-        if (isArrayAccessNode(target)) {
-            return ResultAsync.fromPromise(this.resolveTargetAddress(target), (error: unknown) =>
-                toRuntimeError(error, line, column),
-            ).andThen((address) => {
-                try {
-                    let elementType: TypeInfo = PseudocodeType.INTEGER;
-                    if (isIdentifierNode(target.array)) {
-                        const typeInfo = this.environment.getType(target.array.name);
-                        if (
-                            typeof typeInfo === "object" &&
-                            typeInfo !== null &&
-                            "elementType" in typeInfo
-                        ) {
-                            elementType = this.resolveArrayElementType(
-                                typeInfo,
-                                target.indices.length,
-                            );
-                        }
-                    }
-
-                    VariableAtomFactory.validateValue(elementType, value);
-
-                    this.heap.writeUnsafe(address, value, elementType);
-                    return okAsync(undefined);
-                } catch (error) {
-                    return errAsync(toRuntimeError(error, line, column));
-                }
-            });
-        }
-
         return ResultAsync.fromPromise(
-            Promise.reject(new RuntimeError("Invalid assignment target", line, column)),
+            this.assignToTarget(target, value, line, column),
             (error: unknown) => toRuntimeError(error, line, column),
         );
     }
@@ -1373,42 +1290,6 @@ export class Evaluator {
         return this.classDefinitions.get(className);
     }
 
-    private resolveFullClassDefinition(className: string): ClassTypeInfo | undefined {
-        const cached = this.resolvedClassCache.get(className);
-        if (cached) return cached;
-
-        const result = this.computeFullClassDefinition(className);
-        if (result) this.resolvedClassCache.set(className, result);
-        return result;
-    }
-
-    private computeFullClassDefinition(className: string): ClassTypeInfo | undefined {
-        const classDef = this.classDefinitions.get(className);
-        if (!classDef) return undefined;
-
-        if (!classDef.inherits) return classDef;
-
-        const parentDef = this.computeFullClassDefinition(classDef.inherits);
-        if (!parentDef) return classDef;
-
-        const mergedFields: Record<string, TypeInfo> = { ...parentDef.fields, ...classDef.fields };
-        const mergedFieldVisibility: Record<string, "PUBLIC" | "PRIVATE"> = {
-            ...parentDef.fieldVisibility,
-            ...classDef.fieldVisibility,
-        };
-        const mergedMethods: Record<string, ClassMethodInfo> = {
-            ...parentDef.methods,
-            ...classDef.methods,
-        };
-
-        return {
-            ...classDef,
-            fields: mergedFields,
-            fieldVisibility: mergedFieldVisibility,
-            methods: mergedMethods,
-        };
-    }
-
     private buildDefaultObjectValue(classDef: ClassTypeInfo): Record<string, unknown> {
         const result: Record<string, unknown> = {};
         for (const [fieldName, fieldType] of Object.entries(classDef.fields)) {
@@ -1518,122 +1399,27 @@ export class Evaluator {
     }
 
     private serializeRecord(value: unknown): string {
-        if (isRecord(value)) {
-            const fields: string[] = [];
-            for (const [key, addr] of Object.entries(value)) {
-                if (typeof addr === "number") {
-                    try {
-                        const obj = this.heap.readUnsafe(addr);
-                        fields.push(`${key}=${this.serializeRecord(obj.value)}`);
-                    } catch {}
-                } else {
-                    fields.push(`${key}=${this.serializeRecord(addr)}`);
-                }
-            }
-            return `{${fields.join(",")}}`;
+        return serializeRecordHelper(value, this.heap);
+    }
+
+    private async deserializeRecordImpl(data: string, target: ExpressionNode): Promise<void> {
+        const currentValue = await this.evaluate(target);
+        if (!isRecord(currentValue)) {
+            throw new RuntimeError(
+                "GETRECORD target must be a user-defined type variable",
+                target.line,
+                target.column,
+            );
         }
-        if (Array.isArray(value)) {
-            const items = value.map((addr) => {
-                if (typeof addr === "number") {
-                    try {
-                        const obj = this.heap.readUnsafe(addr);
-                        return this.serializeRecord(obj.value);
-                    } catch {}
-                }
-                return String(addr);
-            });
-            return `[${items.join(",")}]`;
-        }
-        return String(value);
+        const parsed = parseRecordDataHelper(data);
+        reconstructRecordHelper(parsed, currentValue, this.heap);
     }
 
     private deserializeRecord(data: string, target: ExpressionNode): RuntimeAsyncResult<void> {
-        return this.evaluateR(target).andThen((currentValue) => {
-            if (!isRecord(currentValue)) {
-                return errAsync(
-                    new RuntimeError(
-                        "GETRECORD target must be a user-defined type variable",
-                        target.line,
-                        target.column,
-                    ),
-                );
-            }
-            try {
-                const parsed = this.parseRecordData(data);
-                this.reconstructRecord(parsed, currentValue);
-                return okAsync(undefined);
-            } catch (e) {
-                return errAsync(
-                    new RuntimeError(
-                        `Failed to deserialize record: ${e instanceof Error ? e.message : String(e)}`,
-                        target.line,
-                        target.column,
-                    ),
-                );
-            }
-        });
-    }
-
-    private parseRecordData(data: string): Record<string, string> {
-        const result: Record<string, string> = {};
-        if (!data.startsWith("{") || !data.endsWith("}")) {
-            throw new Error(`Invalid record format: ${data}`);
-        }
-        const content = data.slice(1, -1);
-        if (!content) return result;
-        let depth = 0;
-        let current = "";
-        for (const ch of content) {
-            if (ch === "{" || ch === "[") depth++;
-            else if (ch === "}" || ch === "]") depth--;
-            if (ch === "," && depth === 0) {
-                const eqIndex = current.indexOf("=");
-                if (eqIndex > 0) {
-                    const key = current.slice(0, eqIndex);
-                    const val = current.slice(eqIndex + 1);
-                    result[key] = val;
-                }
-                current = "";
-            } else {
-                current += ch;
-            }
-        }
-        if (current) {
-            const eqIndex = current.indexOf("=");
-            if (eqIndex > 0) {
-                const key = current.slice(0, eqIndex);
-                const val = current.slice(eqIndex + 1);
-                result[key] = val;
-            }
-        }
-        return result;
-    }
-
-    private reconstructRecord(
-        parsed: Record<string, string>,
-        template: Record<string, unknown>,
-    ): void {
-        for (const key of Object.keys(template)) {
-            if (key in parsed) {
-                const addr = template[key];
-                if (typeof addr === "number") {
-                    try {
-                        const heapObj = this.heap.readUnsafe(addr);
-                        const currentValue = heapObj.value;
-                        const rawValue = parsed[key];
-                        let convertedValue: unknown;
-                        if (typeof currentValue === "number") {
-                            convertedValue = Number(rawValue);
-                        } else if (typeof currentValue === "boolean") {
-                            convertedValue = rawValue === "true";
-                        } else {
-                            convertedValue = rawValue;
-                        }
-                        this.heap.writeUnsafe(addr, convertedValue, heapObj.type);
-                    } catch {}
-                }
-            }
-        }
+        return ResultAsync.fromPromise(
+            this.deserializeRecordImpl(data, target),
+            (error: unknown) => toRuntimeError(error, target.line, target.column),
+        );
     }
 
     private evaluateIdentifier(node: IdentifierNode) {
@@ -1736,21 +1522,6 @@ export class Evaluator {
         }
 
         return { handled: true, value: result };
-    }
-
-    private findMethodBody(className: string, methodName: string): RuntimeMethodInfo | undefined {
-        const methodBodies = this.classMethodBodies.get(className);
-        if (methodBodies) {
-            const method = methodBodies.get(methodName);
-            if (method) return method;
-        }
-
-        const classDef = this.classDefinitions.get(className);
-        if (classDef?.inherits) {
-            return this.findMethodBody(classDef.inherits, methodName);
-        }
-
-        return undefined;
     }
 
     private async evaluateCallExpression(node: CallExpressionNode): Promise<unknown> {
@@ -2284,7 +2055,7 @@ export class Evaluator {
     private async evaluatePointerDereference(node: PointerDereferenceNode): Promise<unknown> {
         const ptrValue = await this.evaluate(node.pointer);
 
-        if (ptrValue === null || ptrValue === undefined) {
+        if (ptrValue === null || ptrValue === undefined || ptrValue === NULL_POINTER) {
             throw new RuntimeError("Null pointer dereference", node.line, node.column);
         }
 
@@ -2415,22 +2186,6 @@ export class Evaluator {
         throw new RuntimeError("Invalid array access target", node.line, node.column);
     }
 
-    private resolveArrayElementType(arrayType: TypeInfo, indexCount: number): TypeInfo {
-        let currentType: TypeInfo = arrayType;
-        for (let i = 0; i < indexCount; i++) {
-            if (
-                typeof currentType === "object" &&
-                currentType !== null &&
-                "elementType" in currentType
-            ) {
-                currentType = currentType.elementType;
-            } else {
-                break;
-            }
-        }
-        return currentType;
-    }
-
     private async evaluateDisposeStatement(node: DisposeStatementNode): Promise<void> {
         const addr = await this.evaluate(node.pointer);
 
@@ -2442,10 +2197,7 @@ export class Evaluator {
             throw new RuntimeError("Cannot dispose non-pointer value", node.line, node.column);
         }
 
-        const result = this.heap.deallocate(addr);
-        if (result.isErr()) {
-            throw result.error;
-        }
+        this.heap.deallocate(addr);
     }
 
     private isTruthy(value: unknown): boolean {
@@ -2530,9 +2282,9 @@ export class Evaluator {
         }
     }
 
-    private createEmptyArray(arrayType: ArrayTypeInfo): unknown[] {
+    private createEmptyArray(arrayType: ArrayTypeInfo, line?: number, column?: number): unknown[] {
         if (arrayType.bounds.length === 1) {
-            const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0]));
+            const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0], line, column));
             const size = bound.upper - bound.lower + 1;
             return Array.from({ length: size }, () =>
                 this.getDefaultValueForFieldType(arrayType.elementType),
@@ -2540,7 +2292,7 @@ export class Evaluator {
         }
 
         const result: unknown[] = [];
-        const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0]));
+        const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0], line, column));
         const size = bound.upper - bound.lower + 1;
 
         const subArrayType: ArrayTypeInfo = {
@@ -2549,7 +2301,7 @@ export class Evaluator {
         };
 
         for (let i = 0; i < size; i++) {
-            result.push(this.createEmptyArray(subArrayType));
+            result.push(this.createEmptyArray(subArrayType, line, column));
         }
 
         return result;
@@ -2599,11 +2351,10 @@ export class Evaluator {
             }
             return result;
         }
-        return this.createEmptyArray(type);
-    }
-
-    private getDefaultValue(type: TypeInfo): unknown {
-        return this.getDefaultValueForFieldType(type);
+        if (typeof type === "object" && "elementType" in type) {
+            return [];
+        }
+        return undefined;
     }
 
     private resolveType(
@@ -2612,81 +2363,48 @@ export class Evaluator {
         column?: number,
         resolving: Set<string> = new Set(),
     ): TypeInfo {
-        if (typeof type === "string") {
-            return type;
-        }
+        return resolveTypeHelper(
+            type,
+            this.userDefinedTypes,
+            this.enumTypes,
+            this.setTypes,
+            this.pointerTypes,
+            this.classDefinitions,
+            line,
+            column,
+            resolving,
+        );
+    }
 
-        if (typeof type === "object" && "kind" in type) {
-            if (type.kind === "POINTER") {
-                return {
-                    kind: "POINTER",
-                    name: type.name,
-                    pointedType: this.resolveType(type.pointedType, line, column, resolving),
-                };
-            }
-            return type;
-        }
+    private resolveFullClassDefinition(className: string): ClassTypeInfo | undefined {
+        return resolveFullClassDefinitionHelper(
+            className,
+            this.classDefinitions,
+            this.resolvedClassCache,
+        );
+    }
 
-        if (typeof type === "object" && "elementType" in type) {
-            return {
-                elementType: this.resolveType(type.elementType, line, column, resolving),
-                bounds: type.bounds.map((bound) => this.resolveArrayBound(bound, line, column)),
-            };
-        }
+    private findMethodBody(className: string, methodName: string): RuntimeMethodInfo | undefined {
+        return findMethodInHierarchy(
+            className,
+            methodName,
+            this.classMethodBodies,
+            this.classDefinitions,
+        );
+    }
 
-        if (Object.keys(type.fields).length > 0) {
-            const resolvedFields: Record<string, TypeInfo> = {};
-            for (const [fieldName, fieldType] of Object.entries(type.fields)) {
-                resolvedFields[fieldName] = this.resolveType(fieldType, line, column, resolving);
-            }
-            return {
-                name: type.name,
-                fields: resolvedFields,
-            };
+    private getDefaultValue(type: TypeInfo, line?: number, column?: number): unknown {
+        if (typeof type === "object" && "kind" in type && type.kind === "SET") {
+            return new Set();
         }
+        if (typeof type === "object" && "elementType" in type && !("kind" in type)) {
+            return this.createEmptyArray(type, line, column);
+        }
+        return getDefaultValueHelper(type);
+    }
 
-        const lookupName = type.name.toUpperCase();
-        if (resolving.has(lookupName)) {
-            throw new RuntimeError(`Recursive type '${type.name}' is not supported`, line, column);
-        }
-
-        resolving.add(lookupName);
-        const resolved = this.userDefinedTypes.get(type.name.toUpperCase());
-        const resolvedEnum = this.enumTypes.get(type.name.toUpperCase());
-        if (resolvedEnum) {
-            resolving.delete(lookupName);
-            return resolvedEnum;
-        }
-        const resolvedSet = this.setTypes.get(type.name.toUpperCase());
-        if (resolvedSet) {
-            resolving.delete(lookupName);
-            return resolvedSet;
-        }
-        const resolvedPointer = this.pointerTypes.get(type.name.toUpperCase());
-        if (resolvedPointer) {
-            resolving.delete(lookupName);
-            return resolvedPointer;
-        }
-        const resolvedClass = this.classDefinitions.get(type.name);
-        if (resolvedClass) {
-            resolving.delete(lookupName);
-            return resolvedClass;
-        }
-        if (!resolved) {
-            resolving.delete(lookupName);
-            throw new RuntimeError(`Unknown type '${type.name}'`, line, column);
-        }
-
-        const resolvedFields: Record<string, TypeInfo> = {};
-        for (const [fieldName, fieldType] of Object.entries(resolved.fields)) {
-            resolvedFields[fieldName] = this.resolveType(fieldType, line, column, resolving);
-        }
-        resolving.delete(lookupName);
-
-        return {
-            name: resolved.name,
-            fields: resolvedFields,
-        };
+    private resolveArrayElementType(arrayType: TypeInfo, indexCount: number): TypeInfo {
+        return resolveArrayElementTypeHelper(arrayType, indexCount);
     }
 
     private resolveArrayBound(bound: ArrayBound, line?: number, column?: number): ArrayBound {

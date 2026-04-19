@@ -13,10 +13,10 @@ export default defineConfig({
             reporter: ['text', 'lcov', 'html'],
         },
         execArgv: [
-      '--cpu-prof',
-      '--cpu-prof-dir=test-runner-profile',
-      '--heap-prof',
-      '--heap-prof-dir=test-runner-profile'
-    ],
+            '--cpu-prof',
+            '--cpu-prof-dir=test-runner-profile',
+            '--heap-prof',
+            '--heap-prof-dir=test-runner-profile'
+        ],
     },
 });

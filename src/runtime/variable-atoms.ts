@@ -74,10 +74,7 @@ export class VariableAtom {
             throw new RuntimeError("Cannot assign to constant");
         }
 
-        const writeResult = heap.write(this.address, value, this.type);
-        if (writeResult.isErr()) {
-            throw writeResult.error;
-        }
+        heap.write(this.address, value, this.type);
     }
 
     getAddress(): number {
