@@ -21,6 +21,7 @@ export enum TokenType {
     NEXT = "NEXT",
     STEP = "STEP",
     WHILE = "WHILE",
+    DO = "DO",
     ENDWHILE = "ENDWHILE",
     REPEAT = "REPEAT",
     UNTIL = "UNTIL",
@@ -136,6 +137,7 @@ export const KEYWORD_TOKENS: Record<string, TokenType> = {
     NEXT: TokenType.NEXT,
     STEP: TokenType.STEP,
     WHILE: TokenType.WHILE,
+    DO: TokenType.DO,
     ENDWHILE: TokenType.ENDWHILE,
     REPEAT: TokenType.REPEAT,
     UNTIL: TokenType.UNTIL,
@@ -238,7 +240,7 @@ export class Token {
         public value: unknown,
         public line: number,
         public column: number,
-    ) {}
+    ) { }
 
     /**
      * Check if this token is a keyword

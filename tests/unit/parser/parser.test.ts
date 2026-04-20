@@ -159,6 +159,13 @@ ENDCASE\n`);
             expect(whileNode.body).toHaveLength(1);
         });
 
+        test("parses WHILE-DO-ENDWHILE", () => {
+            const ast = parse("WHILE x > 0 DO\nx <- x - 1\nENDWHILE\n");
+            const whileNode = ast.body[0] as any;
+            expect(whileNode.type).toBe("While");
+            expect(whileNode.body).toHaveLength(1);
+        });
+
         test("parses REPEAT-UNTIL", () => {
             const ast = parse("REPEAT\nx <- x - 1\nUNTIL x = 0\n");
             const repeatNode = ast.body[0] as any;

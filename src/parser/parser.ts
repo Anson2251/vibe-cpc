@@ -723,6 +723,7 @@ export class Parser {
         const column = this.previous().column;
 
         const condition = this.expression();
+        this.match(TokenType.DO); // DO is optional
         this.consumeNewline();
 
         const body: StatementNode[] = [];
