@@ -261,6 +261,16 @@ export function getDefaultValue(type: TypeInfo): unknown {
     }
 
     if (typeof type === "object" && "elementType" in type) {
+        // Array type - create array with proper size and default values
+        const arrayType = type as { elementType: TypeInfo; bounds: { lower: number | string; upper: number | string }[] };
+        if (arrayType.bounds && arrayType.bounds.length > 0) {
+            const firstBound = arrayType.bounds[0];
+            const lower = typeof firstBound.lower === "number" ? firstBound.lower : 1;
+            const upper = typeof firstBound.upper === "number" ? firstBound.upper : 1;
+            const size = upper - lower + 1;
+            const defaultElementValue = getDefaultValue(arrayType.elementType);
+            return Array(size).fill(defaultElementValue);
+        }
         return [];
     }
 

@@ -9,6 +9,7 @@ import { Lexer } from "./lexer/lexer";
 import { Parser } from "./parser/parser";
 import { Evaluator } from "./runtime/evaluator";
 import { Linker } from "./runtime/linker";
+import { FrameTrampoline, FrameTrampolineDeps } from "./runtime/frame-trampoline";
 import type { IOInterface } from "./io/io-interface";
 import type { ProgramNode } from "./parser/ast-nodes";
 import type { Token } from "./lexer/tokens";
@@ -16,6 +17,13 @@ import { PseudocodeError, ErrorHandler } from "./errors";
 import { InterpreterResult, toPseudocodeError } from "./result";
 import { err } from "neverthrow";
 import { DebuggerController } from "./runtime/debugger";
+import { Environment } from "./runtime/environment";
+import { Heap } from "./runtime/heap";
+import { builtInFunctions } from "./runtime/builtin-functions";
+import type { RoutineInfo } from "./runtime/environment";
+import type { UserDefinedTypeInfo, EnumTypeInfo, SetTypeInfo, PointerTypeInfo, ClassTypeInfo } from "./types";
+import type { RuntimeMethodInfo } from "./parser/ast-nodes";
+import type { ImportInfo } from "./runtime/linker";
 
 function unescapeString(str: string) {
     const escapes: Record<string, string> = {
@@ -72,6 +80,7 @@ export class Interpreter {
     private executionSteps: number = 0;
     private debuggerController?: DebuggerController;
     private currentEvaluator: Evaluator | null = null;
+    private useFrameEvaluator: boolean = true;
 
     constructor(io: IOInterface, options: InterpreterOptions = {}) {
         this.io = io;
@@ -82,16 +91,7 @@ export class Interpreter {
         this.errorHandler = new ErrorHandler(io);
     }
 
-    /**
-     * Execute a pseudocode program from source code
-     */
-    /**
-     * Executes the provided source code and returns the execution result
-     * @param sourceCode - The pseudocode to be executed
-     * @returns A Promise that resolves to an ExecutionResult object
-     */
     async execute(sourceCode: string): Promise<ExecutionResult> {
-        // Unescape any escaped characters in the source code
         sourceCode = unescapeString(sourceCode);
         const startTime = Date.now();
         this.executionSteps = 0;
@@ -106,7 +106,7 @@ export class Interpreter {
         const ast = parseResult.value;
 
         let linkedAst = ast;
-        let namespaceImports: import("./runtime/linker").ImportInfo[] = [];
+        let namespaceImports: ImportInfo[] = [];
 
         if (!strictMode) {
             const linker = new Linker(this.io);
@@ -114,6 +114,75 @@ export class Interpreter {
             namespaceImports = linker.getImports();
         }
 
+        try {
+            if (this.useFrameEvaluator) {
+                await this.executeWithFrameEvaluator(linkedAst, strictMode, namespaceImports);
+            } else {
+                await this.executeWithLegacyEvaluator(linkedAst, strictMode, namespaceImports);
+            }
+        } catch (error) {
+            return this.buildErrorResult(toPseudocodeError(error), startTime);
+        }
+
+        return this.buildSuccessResult(undefined, startTime);
+    }
+
+    private async executeWithFrameEvaluator(
+        ast: ProgramNode,
+        strictMode: boolean,
+        namespaceImports: ImportInfo[],
+    ): Promise<void> {
+        const heap = new Heap();
+        const environment = new Environment(heap);
+
+        const globalRoutines = new Map<string, RoutineInfo>();
+        const userDefinedTypes = new Map<string, UserDefinedTypeInfo>();
+        const enumTypes = new Map<string, EnumTypeInfo>();
+        const setTypes = new Map<string, SetTypeInfo>();
+        const pointerTypes = new Map<string, PointerTypeInfo>();
+        const classDefinitions = new Map<string, ClassTypeInfo>();
+        const classMethodBodies = new Map<string, Map<string, RuntimeMethodInfo>>();
+        const namespaceImportsMap = new Map<string, ImportInfo>();
+
+        for (const imp of namespaceImports) {
+            if (imp.namespace) {
+                namespaceImportsMap.set(imp.namespace, imp);
+            }
+        }
+
+        for (const [name, fnInfo] of Object.entries(builtInFunctions)) {
+            globalRoutines.set(name, {
+                name,
+                ...fnInfo,
+            });
+        }
+
+        const deps: FrameTrampolineDeps = {
+            io: this.io,
+            strictMode,
+            globalRoutines,
+            userDefinedTypes,
+            enumTypes,
+            setTypes,
+            pointerTypes,
+            classDefinitions,
+            classMethodBodies,
+            namespaceImports: namespaceImportsMap,
+            debuggerController: this.debuggerController,
+            onStep: () => {
+                this.incrementExecutionSteps();
+            },
+        };
+
+        const trampoline = new FrameTrampoline(deps);
+        await trampoline.run(ast);
+    }
+
+    private async executeWithLegacyEvaluator(
+        ast: ProgramNode,
+        strictMode: boolean,
+        namespaceImports: ImportInfo[],
+    ): Promise<void> {
         const evaluator = new Evaluator(this.io, strictMode);
         this.currentEvaluator = evaluator;
         evaluator.setDebuggerController(this.debuggerController);
@@ -122,10 +191,9 @@ export class Interpreter {
         });
         evaluator.setNamespaceImports(namespaceImports);
 
-        let evalResult;
         let autoClosedFiles: string[] = [];
         try {
-            evalResult = await evaluator.evaluateProgramR(linkedAst);
+            await evaluator.evaluateProgramR(ast);
         } finally {
             autoClosedFiles = await evaluator.dispose();
             this.currentEvaluator = null;
@@ -135,12 +203,6 @@ export class Interpreter {
             const quoted = autoClosedFiles.map((file) => `'${file}'`).join(", ");
             this.io.output(`Warning: Auto-closed file(s) not closed in program: ${quoted}\n`);
         }
-
-        if (evalResult.isErr()) {
-            return this.buildErrorResult(evalResult.error, startTime);
-        }
-
-        return this.buildSuccessResult(evalResult.value, startTime);
     }
 
     /**
