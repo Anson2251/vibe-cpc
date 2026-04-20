@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0-alpha.3] - 2026-04-20
+
+### Added
+- Performance benchmark suite (`profile-hard`) with 27 tests covering lexer, parser, loops, recursion, arrays, strings, OOP, procedures, algorithms, and records
+- Performance benchmarks section in README with averaged results over 5 runs
+
+### Changed
+- **Performance**: Remove `neverthrow` from evaluator hot path for faster execution
+- **Performance**: Add unsafe heap methods (`getObjectUnsafe`, `setObjectUnsafe`) to bypass bounds checking
+- **Performance**: Cache class definitions to avoid repeated lookups during object creation
+- **Performance**: Optimize sequential program evaluation with direct trampoline execution
+- **Performance**: Optimize trampoline engine with fast paths for loop conditions, body execution, and IO operations
+- **Performance**: Extract type resolution, array helpers, OOP helpers, record serializer, and variable atoms into dedicated modules
+- Refactor evaluator into modular helper modules (`evaluator-types.ts`, `oop-helpers.ts`, `record-serializer.ts`, `type-resolver.ts`, `array-helpers.ts`)
+- Refactor heap to use unsafe access methods for internal operations
+- Update README: remove duplicate feature sections, add software version info to benchmarks
+
+### Fixed
+- Remove unused `originalAfter` variable in trampoline sequence-to-loop conversion
+- Remove unnecessary type assertions (`as OutputNode`, `as ReturnNode`) in evaluator
+- Add `async` keyword to `debugPause` callbacks to satisfy `promise-function-async` lint rule
+
 ## [0.1.0-alpha.2] - 2026-04-18
 
 ### Fixed

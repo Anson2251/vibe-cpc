@@ -1,7 +1,7 @@
 {
   "name": "vibe-cpc",
   "type": "module",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "A TypeScript interpreter for the CAIE pseudocode language",
   "main": "dist/index.cjs",
   "types": "dist/types/index.d.ts",

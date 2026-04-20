@@ -208,35 +208,6 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
   - `resumed` with `DebugSnapshot`
 - Pause reasons: `debugger-statement`, `step`, `breakpoint`
 
-### Control Structures
-- **Selection**: IF statements, CASE statements
-- **Iteration**: FOR loops, WHILE loops, REPEAT loops
-- **Procedures and Functions**: With parameter passing by value and reference
-
-### Operations
-- **Arithmetic**: +, -, *, /, DIV, MOD
-- **Relational**: >, <, >=, <=, =, <>
-- **Logical**: AND, OR, NOT
-- **String Operations**: Concatenation (&), LENGTH, MID, LEFT, RIGHT, LCASE, UCASE, POSITION, REPLACE, TRIM
-- **Numeric Functions**: INT, RAND, ROUND, ABS, SQRT, POWER
-- **Type Functions**: TYPEOF
-
-### File Operations
-- **Text Files**: OPENFILE, READFILE, WRITEFILE, CLOSEFILE, EOF
-- **Random Files**: SEEK, GETRECORD, PUTRECORD
-
-### Object-Oriented Programming
-- **Classes and Objects**: Methods, properties, constructors
-- **Inheritance**: Class inheritance with SUPER keyword
-- **Access Modifiers**: PUBLIC, PRIVATE
-
-### Pointers
-- **Pointer Types**: `TYPE Ptr = ^INTEGER`
-- **Dereference**: `p^` to access value pointed to
-- **Address-of**: `^x` to get address of variable
-- **NULL**: Null pointer assignment and comparison
-- **DISPOSE**: Free pointer memory
-
 ## Implementation Status
 
 ### Completed
@@ -258,6 +229,45 @@ The debugger API is exported from the package entry (`src/index.ts`) via `Debugg
 - [x] CAIE_ONLY strict mode
 - [x] Debugger extension
 - [x] Portable binary executable
+
+## Performance Benchmarks
+
+Benchmark suite: `profile-hard` (27 tests), averaged over 5 runs.
+
+**Environment**: Intel Core i7-9700, 32 GB RAM
+
+**Software**: Node.js v24.15.0, tsgo 7.0.0-dev.20260409.1, Vitest 4.1.4
+
+| # | Category | Test | Avg Time |
+|---|---|---|---|
+| 1 | Lexer | Lex 4000 variable declarations | 76 ms |
+| 2 | Lexer | Lex 1500 constant declarations | 56 ms |
+| 3 | Parser | Parse 120-level nested IF statements | 4 ms |
+| 4 | Parser | Parse 20-level nested FOR loops | 2 ms |
+| 5 | Loops | Sum 1..200000 (FOR) | 142 ms |
+| 6 | Loops | Sum 1..200000 (WHILE) | 199 ms |
+| 7 | Loops | Sum 1..200000 (REPEAT) | 199 ms |
+| 8 | Loops | Nested FOR 800×800 (640000 iterations) | 394 ms |
+| 9 | Recursion | Factorial(20) recursive | 2 ms |
+| 10 | Recursion | Fibonacci(27) recursive | 1023 ms |
+| 11 | Recursion | Fibonacci(80) iterative | 1 ms |
+| 12 | Arrays | Initialize and sum 50000-element array | 113 ms |
+| 13 | Arrays | Traverse 350×350 2D array | 277 ms |
+| 14 | Arrays | Bubble sort 1000-element array | 1444 ms |
+| 15 | Strings | Concatenate 15000 strings in loop | 14 ms |
+| 16 | Strings | MID/LEFT/RIGHT 15000 times | 116 ms |
+| 17 | OOP | Call Increment 150000 times | 228 ms |
+| 18 | OOP | Inheritance with method override 15000 times | 28 ms |
+| 19 | Procedures | BYREF procedure call 60000 times | 86 ms |
+| 20 | Procedures | BYVAL function call 60000 times | 83 ms |
+| 21 | Procedures | 5-BYREF-params procedure 30000 times | 106 ms |
+| 22 | Algorithms | Prime sieve up to 15000 | 60 ms |
+| 23 | Algorithms | Linear search 5000× on 500-element array | 941 ms |
+| 24 | Algorithms | GCD of 5000 pairs (Euclidean) | 33 ms |
+| 25 | Algorithms | Matrix multiplication 35×35 | 66 ms |
+| 26 | Records | Create and traverse 5000 records | 31 ms |
+| 27 | Records | Pass records BYREF 5000 times | 21 ms |
+| | **Total** | **27 tests** | **~5.7 s** |
 
 ## Getting Started
 
