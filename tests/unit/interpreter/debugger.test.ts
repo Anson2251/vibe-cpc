@@ -973,7 +973,7 @@ OUTPUT x
             }
         });
 
-        // 除以零会产生错误
+        // 除以零会产生错误 - 第3行
         const result = await interpreter.execute(`
 DECLARE x : INTEGER
 x <- 10 DIV 0
@@ -983,6 +983,41 @@ OUTPUT x
         expect(result.success).toBe(false);
         expect(errorPaused).toBe(true);
         expect(errorSnapshot?.error).toBeDefined();
+        expect(errorSnapshot?.error?.line).toBe(3);
+        expect(errorSnapshot?.error?.column).toBeDefined();
+        expect(errorSnapshot?.location?.line).toBe(3);
+    });
+
+    test("debugger pauses on array index out of bounds error with location", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let errorPaused = false;
+        let errorSnapshot: DebugSnapshot | undefined;
+        controller.onEvent((event) => {
+            if (event.type === "paused" && event.snapshot.reason === "error") {
+                errorPaused = true;
+                errorSnapshot = event.snapshot;
+                controller.continue();
+            }
+        });
+
+        // 数组越界错误 - 第4行
+        const result = await interpreter.execute(`
+DECLARE arr : ARRAY[1:3] OF INTEGER
+arr[1] <- 10
+arr[2] <- 20
+OUTPUT arr[0]
+`);
+
+        expect(result.success).toBe(false);
+        expect(errorPaused).toBe(true);
+        expect(errorSnapshot?.error).toBeDefined();
+        expect(errorSnapshot?.error?.line).toBe(5);
+        expect(errorSnapshot?.error?.column).toBeDefined();
+        expect(errorSnapshot?.location?.line).toBe(5);
     });
 
     test("debugger in PROCEDURE without return value", async () => {

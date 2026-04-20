@@ -2466,7 +2466,7 @@ export class Evaluator {
                     }
                     const arrayAtom = this.resolveArrayRootAtom(node);
                     const arrayAddress = arrayAtom.getAddress();
-                    const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, index);
+                    const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, index, node.line, node.column);
                     return done(this.heap.readUnsafe(elemAddr).value);
                 },
             );
@@ -2476,7 +2476,7 @@ export class Evaluator {
         return this.evaluateArrayAccessIndicesBounce(node, 0, [], (indices) => {
             const arrayAtom = this.resolveArrayRootAtom(node);
             const arrayAddress = arrayAtom.getAddress();
-            const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0]);
+            const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0], node.line, node.column);
 
             if (indices.length === 1) {
                 return done(this.heap.readUnsafe(elemAddr).value);
@@ -2484,7 +2484,7 @@ export class Evaluator {
 
             let currentAddress = elemAddr;
             for (let i = 1; i < indices.length; i++) {
-                currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i]);
+                currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i], node.line, node.column);
             }
             return done(this.heap.readUnsafe(currentAddress).value);
         });
@@ -3035,7 +3035,7 @@ export class Evaluator {
             );
 
             const arrayAddress = arrayAtom.getAddress();
-            const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0]);
+            const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0], target.line, target.column);
 
             if (indices.length === 1) {
                 return elemAddr;
@@ -3043,7 +3043,7 @@ export class Evaluator {
 
             let currentAddress = elemAddr;
             for (let i = 1; i < indices.length; i++) {
-                currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i]);
+                currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i], target.line, target.column);
             }
             return currentAddress;
         }

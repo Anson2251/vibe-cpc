@@ -303,22 +303,22 @@ export class Heap {
         obj.value = this.deepCopyValue(value, type, true);
     }
 
-    readElementAddressUnsafe(arrayAddress: number, index: number): number {
+    readElementAddressUnsafe(arrayAddress: number, index: number, line?: number, column?: number): number {
         const obj = this.readUnsafe(arrayAddress);
         const arrayValue = obj.value;
         if (!Array.isArray(arrayValue)) {
-            throw new RuntimeError("Array access on non-array value");
+            throw new RuntimeError("Array access on non-array value", line, column);
         }
 
         const lowerBound = this.getArrayLowerBound(obj);
 
         if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
-            throw new RuntimeError(`Array index out of bounds: ${index}`);
+            throw new RuntimeError(`Array index out of bounds: ${index}`, line, column);
         }
 
         const elementAddress: unknown = arrayValue[index - lowerBound];
         if (typeof elementAddress !== "number") {
-            throw new RuntimeError("Invalid array element address");
+            throw new RuntimeError("Invalid array element address", line, column);
         }
 
         return elementAddress;
