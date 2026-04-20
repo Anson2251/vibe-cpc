@@ -1,6 +1,6 @@
 import { TypeInfo, VariableInfo, RoutineSignature } from "../types";
 import { RuntimeError } from "../errors";
-import { ASTNode } from "../parser/ast-nodes";
+import type { ASTNode } from "../parser/ast-nodes";
 import { VariableAtom, VariableAtomFactory } from "./variable-atoms";
 import { Heap } from "./heap";
 
@@ -339,7 +339,7 @@ export class Environment {
         return this.createChild();
     }
 
-    exitScope(): void {}
+    exitScope(): void { }
 
     disposeScope(): void {
         for (const atom of this.variables.values()) {

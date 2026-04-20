@@ -58,3 +58,6 @@ export {
 } from "./errors";
 
 export type { ErrorLocation } from "./errors";
+
+// Export runtime types that may be needed
+export type { RoutineInfo, RuntimeValue, CallFrame } from "./runtime/environment";

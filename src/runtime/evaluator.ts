@@ -245,10 +245,11 @@ import { ResultAsync } from "neverthrow";
 import { Bounce, done, io, seq, seqMany, loop, fileOp, debugPause } from "./trampoline";
 import { TrampolineEngine } from "./trampoline";
 
-import { Environment, ExecutionContext, RoutineInfo } from "./environment";
-import { IOInterface } from "../io/io-interface";
+import { Environment, ExecutionContext } from "./environment";
+import type { RoutineInfo } from "./environment";
+import type { IOInterface } from "../io/io-interface";
 import { VariableAtomFactory, VariableAtom } from "./variable-atoms";
-import { DebuggerController, DebugSnapshot, type DebugPauseReason } from "./debugger";
+import { DebuggerController, type DebugSnapshot, type DebugPauseReason } from "./debugger";
 import { Heap, NULL_POINTER } from "./heap";
 import type { ImportInfo } from "./linker";
 import {
@@ -717,8 +718,7 @@ export class Evaluator {
                 return done(undefined);
 
             case "Assignment":
-                this.evaluateAssignment(node);
-                return done(undefined);
+                return this.evaluateAssignmentBounce(node);
 
             case "If":
                 return this.evaluateIfBounce(node);
@@ -954,11 +954,19 @@ export class Evaluator {
                 }
                 return done(undefined);
 
-            case "BinaryExpression":
+            case "BinaryExpression": {
+                if (this.expressionNeedsAsync(node)) {
+                    return this.evaluateBinaryExpressionBounce(node);
+                }
                 return done(this.evaluateBinaryExpression(node));
+            }
 
-            case "UnaryExpression":
+            case "UnaryExpression": {
+                if (this.expressionNeedsAsync(node)) {
+                    return this.evaluateUnaryExpressionBounce(node);
+                }
                 return done(this.evaluateUnaryExpression(node));
+            }
 
             case "Identifier":
                 return done(this.evaluateIdentifier(node));
@@ -966,8 +974,12 @@ export class Evaluator {
             case "Literal":
                 return done(this.evaluateLiteral(node));
 
-            case "ArrayAccess":
+            case "ArrayAccess": {
+                if (this.expressionNeedsAsync(node)) {
+                    return this.evaluateArrayAccessBounce(node);
+                }
                 return done(this.evaluateArrayAccess(node));
+            }
 
             case "CallExpression":
                 return this.evaluateCallExpressionBounce(node);
@@ -981,8 +993,12 @@ export class Evaluator {
             case "TypeCast":
                 return done(this.evaluateTypeCast(node));
 
-            case "SetLiteral":
+            case "SetLiteral": {
+                if (this.expressionNeedsAsync(node)) {
+                    return this.evaluateSetLiteralBounce(node);
+                }
                 return done(this.evaluateSetLiteral(node));
+            }
 
             case "PointerDereference":
                 return done(this.evaluatePointerDereference(node));
@@ -1474,7 +1490,9 @@ export class Evaluator {
                 const arg = argNode
                     ? this.evaluate(argNode)
                     : this.getDefaultValue(param.type, node.line, node.column);
-                routineEnvironment.define(param.name, param.type, arg, false);
+                // For array types, we need to pass fromHeap=true to ensure proper deep copy
+                const isArrayType = typeof param.type === "object" && "elementType" in param.type;
+                routineEnvironment.define(param.name, param.type, arg, false, isArrayType);
             }
         }
 
@@ -1640,12 +1658,12 @@ export class Evaluator {
 
         const scopes = this.debuggerController
             ? this.environment.getDebugScopes().map((scope, index) => ({
-                  scopeName: index === 0 ? "local" : "global",
-                  variables: this.debuggerController!.variablesToDebugWithHeap(
-                      scope.variables,
-                      heapSnapshot,
-                  ),
-              }))
+                scopeName: index === 0 ? "local" : "global",
+                variables: this.debuggerController!.variablesToDebugWithHeap(
+                    scope.variables,
+                    heapSnapshot,
+                ),
+            }))
             : [];
 
         return {
@@ -1767,6 +1785,70 @@ export class Evaluator {
             value = this.evaluate(node.value);
         }
 
+        this.performAssignment(node, value);
+    }
+
+    private evaluateAssignmentBounce(node: AssignmentNode): Bounce {
+        // Check if right-hand side needs async evaluation (e.g., function calls)
+        const needsAsync = this.expressionNeedsAsync(node.value);
+
+        if (!needsAsync) {
+            // Can use sync version for simple assignments
+            this.evaluateAssignment(node);
+            return done(undefined);
+        }
+
+        // Async path: evaluate RHS with bounce, then perform assignment
+        return seq(
+            () => this.evaluateBounce(node.value),
+            (value) => {
+                this.performAssignment(node, value);
+                return done(undefined);
+            },
+        );
+    }
+
+    private expressionNeedsAsync(node: ExpressionNode): boolean {
+        // Check if expression contains function calls that need async evaluation
+        // Use type assertions since TypeScript doesn't narrow types properly in switch
+        switch (node.type) {
+            case "CallExpression":
+                return true;
+            case "BinaryExpression": {
+                const n = node as import("../parser/ast-nodes").BinaryExpressionNode;
+                return this.expressionNeedsAsync(n.left) || this.expressionNeedsAsync(n.right);
+            }
+            case "UnaryExpression": {
+                const n = node as import("../parser/ast-nodes").UnaryExpressionNode;
+                return this.expressionNeedsAsync(n.operand);
+            }
+            case "ArrayAccess": {
+                const n = node as import("../parser/ast-nodes").ArrayAccessNode;
+                return this.expressionNeedsAsync(n.array) ||
+                    n.indices.some((idx: ExpressionNode) => this.expressionNeedsAsync(idx));
+            }
+            case "MemberAccess": {
+                const n = node as import("../parser/ast-nodes").MemberAccessNode;
+                return this.expressionNeedsAsync(n.object);
+            }
+            case "NewExpression": {
+                const n = node as import("../parser/ast-nodes").NewExpressionNode;
+                return n.arguments.some((arg: ExpressionNode) => this.expressionNeedsAsync(arg));
+            }
+            case "TypeCast": {
+                const n = node as import("../parser/ast-nodes").TypeCastNode;
+                return this.expressionNeedsAsync(n.expression);
+            }
+            case "SetLiteral": {
+                const n = node as import("../parser/ast-nodes").SetLiteralNode;
+                return n.elements.some((el: ExpressionNode) => this.expressionNeedsAsync(el));
+            }
+            default:
+                return false;
+        }
+    }
+
+    private performAssignment(node: AssignmentNode, value: unknown): void {
         if (isIdentifierNode(node.target)) {
             this.environment.assign(node.target.name, value);
         } else if (isArrayAccessNode(node.target)) {
@@ -2299,6 +2381,97 @@ export class Evaluator {
         }
     }
 
+    private evaluateBinaryExpressionBounce(node: BinaryExpressionNode): Bounce {
+        return seq(
+            () => this.evaluateBounce(node.left),
+            (left) =>
+                seq(
+                    () => this.evaluateBounce(node.right),
+                    (right) => {
+                        switch (node.operator) {
+                            case "+":
+                                if (typeof left === "string" || typeof right === "string") {
+                                    return done(String(left) + String(right));
+                                }
+                                return done(Number(left) + Number(right));
+
+                            case "&":
+                                return done(String(left) + String(right));
+
+                            case "-":
+                                return done(Number(left) - Number(right));
+
+                            case "*":
+                                return done(Number(left) * Number(right));
+
+                            case "/":
+                                if (Number(right) === 0) {
+                                    throw new DivisionByZeroError(node.line, node.column);
+                                }
+                                return done(Number(left) / Number(right));
+
+                            case "DIV":
+                                if (Number(right) === 0) {
+                                    throw new DivisionByZeroError(node.line, node.column);
+                                }
+                                return done(Math.floor(Number(left) / Number(right)));
+
+                            case "MOD":
+                                if (Number(right) === 0) {
+                                    throw new DivisionByZeroError(node.line, node.column);
+                                }
+                                return done(Number(left) % Number(right));
+
+                            case "=":
+                                return done(this.isEqual(left, right));
+
+                            case "<>":
+                                return done(!this.isEqual(left, right));
+
+                            case "<":
+                                return done(Number(left) < Number(right));
+
+                            case ">":
+                                return done(Number(left) > Number(right));
+
+                            case "<=":
+                                return done(Number(left) <= Number(right));
+
+                            case ">=":
+                                return done(Number(left) >= Number(right));
+
+                            case "AND":
+                                return done(this.isTruthy(left) && this.isTruthy(right));
+
+                            case "OR":
+                                return done(this.isTruthy(left) || this.isTruthy(right));
+
+                            case "IN":
+                                if (
+                                    typeof right !== "object" ||
+                                    right === null ||
+                                    !(right instanceof Set)
+                                ) {
+                                    throw new RuntimeError(
+                                        "Right operand of IN must be a SET",
+                                        node.line,
+                                        node.column,
+                                    );
+                                }
+                                return done(right.has(left));
+
+                            default:
+                                throw new RuntimeError(
+                                    `Unknown binary operator: ${node.operator}`,
+                                    node.line,
+                                    node.column,
+                                );
+                        }
+                    },
+                ),
+        );
+    }
+
     private evaluateUnaryExpression(node: UnaryExpressionNode): unknown {
         const operand = this.evaluate(node.operand);
 
@@ -2316,6 +2489,28 @@ export class Evaluator {
                     node.column,
                 );
         }
+    }
+
+    private evaluateUnaryExpressionBounce(node: UnaryExpressionNode): Bounce {
+        return seq(
+            () => this.evaluateBounce(node.operand),
+            (operand) => {
+                switch (node.operator) {
+                    case "-":
+                        return done(-Number(operand));
+
+                    case "NOT":
+                        return done(!this.isTruthy(operand));
+
+                    default:
+                        throw new RuntimeError(
+                            `Unknown unary operator: ${node.operator}`,
+                            node.line,
+                            node.column,
+                        );
+                }
+            },
+        );
     }
 
     private serializeRecord(value: unknown): string {
@@ -2360,6 +2555,45 @@ export class Evaluator {
     private evaluateArrayAccess(node: ArrayAccessNode): unknown {
         const address = this.resolveTargetAddress(node);
         return this.heap.readUnsafe(address).value;
+    }
+
+    private evaluateArrayAccessBounce(node: ArrayAccessNode): Bounce {
+        // 异步版本：先异步计算索引，然后再计算地址和读取值
+        return this.evaluateArrayAccessIndicesBounce(node, 0, [], (indices) => {
+            const arrayAtom = this.resolveArrayRootAtom(node);
+            const arrayAddress = arrayAtom.getAddress();
+            const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0]);
+
+            if (indices.length === 1) {
+                return done(this.heap.readUnsafe(elemAddr).value);
+            }
+
+            let currentAddress = elemAddr;
+            for (let i = 1; i < indices.length; i++) {
+                currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i]);
+            }
+            return done(this.heap.readUnsafe(currentAddress).value);
+        });
+    }
+
+    private evaluateArrayAccessIndicesBounce(
+        node: ArrayAccessNode,
+        index: number,
+        accumulated: number[],
+        callback: (indices: number[]) => Bounce,
+    ): Bounce {
+        if (index >= node.indices.length) {
+            return callback(accumulated);
+        }
+
+        return seq(
+            () => this.evaluateBounce(node.indices[index]),
+            (value) => {
+                const idx = ensureIndices([value], node.line, node.column)[0];
+                accumulated.push(idx);
+                return this.evaluateArrayAccessIndicesBounce(node, index + 1, accumulated, callback);
+            },
+        );
     }
 
     private evaluateCallExpression(node: CallExpressionNode): unknown {
@@ -2554,7 +2788,7 @@ export class Evaluator {
                         ) {
                             return objType as UserDefinedTypeInfo;
                         }
-                    } catch {}
+                    } catch { }
                 }
             }
 
@@ -2806,6 +3040,31 @@ export class Evaluator {
         return values;
     }
 
+    private evaluateSetLiteralBounce(node: SetLiteralNode): Bounce {
+        return this.evaluateSetLiteralElementsBounce(node, 0, new Set<unknown>(), (values) =>
+            done(values),
+        );
+    }
+
+    private evaluateSetLiteralElementsBounce(
+        node: SetLiteralNode,
+        index: number,
+        accumulated: Set<unknown>,
+        callback: (values: Set<unknown>) => Bounce,
+    ): Bounce {
+        if (index >= node.elements.length) {
+            return callback(accumulated);
+        }
+
+        return seq(
+            () => this.evaluateBounce(node.elements[index]),
+            (value) => {
+                accumulated.add(value);
+                return this.evaluateSetLiteralElementsBounce(node, index + 1, accumulated, callback);
+            },
+        );
+    }
+
     private evaluatePointerDereference(node: PointerDereferenceNode): unknown {
         const ptrValue = this.evaluate(node.pointer);
 
@@ -2843,9 +3102,9 @@ export class Evaluator {
                         ) {
                             return varValue;
                         }
-                    } catch {}
+                    } catch { }
                 }
-            } catch {}
+            } catch { }
 
             return varAddress;
         }

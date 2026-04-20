@@ -1,4 +1,4 @@
-import {
+import type {
     ASTNode,
     ProgramNode,
     StatementNode,
@@ -50,6 +50,10 @@ import {
 
 import {
     PseudocodeType,
+    ParameterMode,
+    TypeValidator,
+} from "../types";
+import type {
     ArrayTypeInfo,
     ArrayBound,
     UserDefinedTypeInfo,
@@ -57,19 +61,18 @@ import {
     SetTypeInfo,
     PointerTypeInfo,
     TypeInfo,
-    ParameterMode,
     ParameterInfo,
-    TypeValidator,
     ClassTypeInfo,
     ClassMethodInfo,
 } from "../types";
 
 import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
 
-import { Environment, ExecutionContext, RoutineInfo } from "./environment";
-import { IOInterface } from "../io/io-interface";
+import { Environment, ExecutionContext } from "./environment";
+import type { RoutineInfo } from "./environment";
+import type { IOInterface } from "../io/io-interface";
 import { VariableAtomFactory, VariableAtom } from "./variable-atoms";
-import { DebuggerController, DebugSnapshot, type DebugPauseReason } from "./debugger";
+import { DebuggerController, type DebugSnapshot, type DebugPauseReason } from "./debugger";
 import { Heap, NULL_POINTER } from "./heap";
 import { RuntimeFileManager } from "./file-manager";
 import { FileOperationEvaluator } from "./file-operations-evaluator";
@@ -281,38 +284,29 @@ export function getRecordField<T>(record: Record<string, T>, fieldName: string):
     return undefined;
 }
 
+// Export values (runtime entities)
 export {
     PseudocodeType,
-    ArrayTypeInfo,
-    ArrayBound,
-    UserDefinedTypeInfo,
-    EnumTypeInfo,
-    SetTypeInfo,
-    PointerTypeInfo,
-    TypeInfo,
     ParameterMode,
-    ParameterInfo,
     TypeValidator,
-    ClassTypeInfo,
-    ClassMethodInfo,
     RuntimeError,
     DivisionByZeroError,
     IndexError,
     Environment,
     ExecutionContext,
-    RoutineInfo,
-    IOInterface,
     VariableAtomFactory,
     VariableAtom,
     DebuggerController,
-    DebugSnapshot,
-    DebugPauseReason,
     Heap,
     NULL_POINTER,
     RuntimeFileManager,
     FileOperationEvaluator,
     ImportInfo,
-    RuntimeMethodInfo,
+};
+
+// Export types (compile-time only)
+export type {
+    // AST node types
     ASTNode,
     ProgramNode,
     StatementNode,
@@ -359,4 +353,20 @@ export {
     ImportStatementNode,
     ImportExpressionNode,
     ExportStatementNode,
+    // Other types
+    ArrayTypeInfo,
+    ArrayBound,
+    UserDefinedTypeInfo,
+    EnumTypeInfo,
+    SetTypeInfo,
+    PointerTypeInfo,
+    TypeInfo,
+    ParameterInfo,
+    ClassTypeInfo,
+    ClassMethodInfo,
+    DebugPauseReason,
+    RoutineInfo,
+    IOInterface,
+    DebugSnapshot,
+    RuntimeMethodInfo,
 };

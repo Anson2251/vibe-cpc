@@ -1,5 +1,5 @@
 import { ClassTypeInfo, ClassMethodInfo, TypeInfo, PseudocodeType } from "../types";
-import { RuntimeMethodInfo } from "../parser/ast-nodes";
+import type { RuntimeMethodInfo } from "../parser/ast-nodes";
 import { NULL_POINTER } from "./heap";
 
 export function resolveFullClassDefinition(

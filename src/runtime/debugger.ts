@@ -655,12 +655,12 @@ export class DebuggerController {
                     const derefValue = visited.has(value)
                         ? "[Circular]"
                         : (visited.add(value),
-                          this.resolveHeapValue(
-                              heapObj.value,
-                              heapObj.type,
-                              heapSnapshot,
-                              visited,
-                          ));
+                            this.resolveHeapValue(
+                                heapObj.value,
+                                heapObj.type,
+                                heapSnapshot,
+                                visited,
+                            ));
                     return { address: value, dereferenced: derefValue };
                 }
             }

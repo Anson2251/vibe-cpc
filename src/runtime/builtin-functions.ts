@@ -1,5 +1,5 @@
 import { ParameterMode, PseudocodeType } from "../types";
-import { RoutineInfo } from "./environment";
+import type { RoutineInfo } from "./environment";
 import { z } from "zod";
 
 type BuiltInScalarType =

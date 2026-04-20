@@ -1,5 +1,8 @@
 import {
     RuntimeError,
+    PseudocodeType,
+} from "./evaluator-types";
+import type {
     TypeInfo,
     UserDefinedTypeInfo,
     EnumTypeInfo,
@@ -7,7 +10,6 @@ import {
     PointerTypeInfo,
     ClassTypeInfo,
     ClassMethodInfo,
-    PseudocodeType,
 } from "./evaluator-types";
 import { NULL_POINTER } from "./heap";
 
