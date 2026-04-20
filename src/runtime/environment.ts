@@ -112,13 +112,40 @@ export class Environment {
         }
 
         this.heap.incrementRef(address);
-        const atom = new VariableAtom(address, type, false);
+        const atom = new VariableAtom(address, type, false, true);
+        this.variables.set(name, atom);
+    }
+
+    /**
+     * Define a variable with Copy-on-Write semantics for BYVAL parameters.
+     * For complex types (arrays, records), shares the underlying heap storage
+     * and only copies on write.
+     */
+    defineByValCOW(name: string, type: TypeInfo, value: unknown): void {
+        if (this.variables.has(name)) {
+            throw new RuntimeError(`Variable '${name}' already declared in this scope`);
+        }
+
+        // Check if type is a complex type (array or record) that uses heap storage
+        const isComplexType = typeof type === "object" &&
+            ("elementType" in type || "fields" in type);
+
+        if (isComplexType && typeof value === "number") {
+            // Value is a heap address - share it (COW)
+            this.heap.incrementRef(value);
+            const atom = new VariableAtom(value, type, false);
+            this.variables.set(name, atom);
+            return;
+        }
+
+        // For primitive types or non-address values, normal allocation
+        const atom = VariableAtomFactory.createAtom(type, value, false, this.heap, false);
         this.variables.set(name, atom);
     }
 
     get(name: string): unknown {
-        if (this.variables.has(name)) {
-            const atom = this.variables.get(name)!;
+        const atom = this.variables.get(name);
+        if (atom !== undefined) {
             return atom.getValue(this.heap);
         }
 
@@ -130,8 +157,9 @@ export class Environment {
     }
 
     getAtom(name: string): VariableAtom {
-        if (this.variables.has(name)) {
-            return this.variables.get(name)!;
+        const atom = this.variables.get(name);
+        if (atom !== undefined) {
+            return atom;
         }
 
         if (this.parent !== undefined) {
@@ -142,8 +170,8 @@ export class Environment {
     }
 
     getType(name: string): TypeInfo {
-        if (this.variables.has(name)) {
-            const atom = this.variables.get(name)!;
+        const atom = this.variables.get(name);
+        if (atom !== undefined) {
             return atom.type;
         }
 
@@ -167,16 +195,33 @@ export class Environment {
     }
 
     assign(name: string, value: unknown): void {
-        if (this.variables.has(name)) {
-            const atom = this.variables.get(name)!;
-
+        const atom = this.variables.get(name);
+        if (atom !== undefined) {
             if (atom.isConstant) {
                 throw new RuntimeError(`Cannot assign to constant '${name}'`);
             }
 
             VariableAtomFactory.validateValue(atom.type, value);
 
-            this.heap.write(atom.getAddress(), value, atom.type);
+            // BYREF variables should never trigger COW - they are meant to be shared
+            if (atom.isByRef) {
+                this.heap.write(atom.getAddress(), value, atom.type);
+                return;
+            }
+
+            // Check if this is a shared variable (COW candidate)
+            // Only use COW for BYVAL parameters with refCount > 1
+            const heapObj = this.heap.readUnsafe(atom.getAddress());
+            if (heapObj.refCount > 1) {
+                // Use COW semantics: create a copy
+                const newAddress = this.heap.writeCOW(atom.getAddress(), value, atom.type);
+                if (newAddress !== atom.getAddress()) {
+                    atom.address = newAddress;
+                }
+            } else {
+                // Normal write for non-shared variables
+                this.heap.write(atom.getAddress(), value, atom.type);
+            }
 
             return;
         }
@@ -190,9 +235,8 @@ export class Environment {
     }
 
     assignPointer(name: string, sourceAddress: number): void {
-        if (this.variables.has(name)) {
-            const atom = this.variables.get(name)!;
-
+        const atom = this.variables.get(name);
+        if (atom !== undefined) {
             if (atom.isConstant) {
                 throw new RuntimeError(`Cannot assign to constant '${name}'`);
             }
@@ -223,8 +267,9 @@ export class Environment {
     }
 
     getRoutine(name: string): RoutineSignature {
-        if (this.routines.has(name)) {
-            return this.routines.get(name)!;
+        const routine = this.routines.get(name);
+        if (routine !== undefined) {
+            return routine;
         }
 
         if (this.parent !== undefined) {

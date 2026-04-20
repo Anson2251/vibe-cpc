@@ -33,12 +33,14 @@ export function seq(step: () => Bounce, then: (value: unknown) => Bounce): Bounc
 }
 
 export function seqMany(steps: Array<() => Bounce>, then: () => Bounce): Bounce {
-    if (steps.length === 0) {
+    return seqManyRecursive(steps, 0, then);
+}
+
+function seqManyRecursive(steps: Array<() => Bounce>, index: number, then: () => Bounce): Bounce {
+    if (index >= steps.length) {
         return then();
     }
-
-    const [first, ...rest] = steps;
-    return seq(first, () => seqMany(rest, then));
+    return seq(steps[index], () => seqManyRecursive(steps, index + 1, then));
 }
 
 export function loop(condition: () => Bounce, body: () => Bounce, after: () => Bounce): Bounce {
@@ -113,45 +115,34 @@ export class TrampolineEngine {
             }
 
             if (current.type === "loop") {
-                const condBounce = current.condition();
+                const loopBounce = current;
+                const condBounce = loopBounce.condition();
                 if (condBounce.type === "done") {
                     if (condBounce.value === true) {
-                        const bodyBounce = current.body();
+                        const bodyBounce = loopBounce.body();
                         if (bodyBounce.type === "done") {
-                            current = {
-                                type: "loop",
-                                condition: current.condition,
-                                body: current.body,
-                                after: current.after,
-                            };
+                            // Reuse the same loop bounce object to avoid allocation
+                            current = loopBounce;
                             continue;
                         } else {
                             await this.runStep(bodyBounce);
-                            current = {
-                                type: "loop",
-                                condition: current.condition,
-                                body: current.body,
-                                after: current.after,
-                            };
+                            // Reuse the same loop bounce object to avoid allocation
+                            current = loopBounce;
                             continue;
                         }
                     } else {
-                        current = current.after();
+                        current = loopBounce.after();
                         continue;
                     }
                 } else {
                     const condResult = await this.runStep(condBounce);
                     if (condResult === true) {
-                        await this.runStep(current.body());
-                        current = {
-                            type: "loop",
-                            condition: current.condition,
-                            body: current.body,
-                            after: current.after,
-                        };
+                        await this.runStep(loopBounce.body());
+                        // Reuse the same loop bounce object to avoid allocation
+                        current = loopBounce;
                         continue;
                     } else {
-                        current = current.after();
+                        current = loopBounce.after();
                         continue;
                     }
                 }
@@ -216,45 +207,34 @@ export class TrampolineEngine {
             }
 
             if (current.type === "loop") {
-                const condBounce = current.condition();
+                const loopBounce = current;
+                const condBounce = loopBounce.condition();
                 if (condBounce.type === "done") {
                     if (condBounce.value === true) {
-                        const bodyBounce = current.body();
+                        const bodyBounce = loopBounce.body();
                         if (bodyBounce.type === "done") {
-                            current = {
-                                type: "loop",
-                                condition: current.condition,
-                                body: current.body,
-                                after: current.after,
-                            };
+                            // Reuse the same loop bounce object to avoid allocation
+                            current = loopBounce;
                             continue;
                         } else {
                             await this.runStep(bodyBounce);
-                            current = {
-                                type: "loop",
-                                condition: current.condition,
-                                body: current.body,
-                                after: current.after,
-                            };
+                            // Reuse the same loop bounce object to avoid allocation
+                            current = loopBounce;
                             continue;
                         }
                     } else {
-                        current = current.after();
+                        current = loopBounce.after();
                         continue;
                     }
                 } else {
                     const condResult = await this.runStep(condBounce);
                     if (condResult === true) {
-                        await this.runStep(current.body());
-                        current = {
-                            type: "loop",
-                            condition: current.condition,
-                            body: current.body,
-                            after: current.after,
-                        };
+                        await this.runStep(loopBounce.body());
+                        // Reuse the same loop bounce object to avoid allocation
+                        current = loopBounce;
                         continue;
                     } else {
-                        current = current.after();
+                        current = loopBounce.after();
                         continue;
                     }
                 }

@@ -349,6 +349,18 @@ export class Evaluator {
         );
     }
 
+    private evaluateFileIdentifier(node: { fileIdentifier: ExpressionNode; line?: number; column?: number }): string {
+        const fileId = this.evaluate(node.fileIdentifier);
+        if (typeof fileId !== "string") {
+            throw new RuntimeError(
+                "File identifier must be a string",
+                node.line,
+                node.column,
+            );
+        }
+        return fileId;
+    }
+
     private async evaluateProgramImpl(node: ProgramNode): Promise<unknown> {
         return this.evaluateProgramBounce(node);
     }
@@ -435,14 +447,7 @@ export class Evaluator {
             }
 
             case "OpenFile": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 return fileOp(
                     {
                         type: "open",
@@ -456,14 +461,7 @@ export class Evaluator {
             }
 
             case "CloseFile": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 return fileOp(
                     {
                         type: "close",
@@ -476,14 +474,7 @@ export class Evaluator {
             }
 
             case "ReadFile": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 return fileOp(
                     {
                         type: "read",
@@ -499,14 +490,7 @@ export class Evaluator {
             }
 
             case "WriteFile": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 const values = node.expressions.map((expr) => String(this.evaluate(expr)));
                 return fileOp(
                     {
@@ -521,14 +505,7 @@ export class Evaluator {
             }
 
             case "Seek": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 const position = this.evaluate(node.position);
                 if (typeof position !== "number") {
                     throw new RuntimeError(
@@ -550,14 +527,7 @@ export class Evaluator {
             }
 
             case "GetRecord": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 return fileOp(
                     {
                         type: "getRecord",
@@ -573,14 +543,7 @@ export class Evaluator {
             }
 
             case "PutRecord": {
-                const fileId = this.evaluate(node.fileIdentifier);
-                if (typeof fileId !== "string") {
-                    throw new RuntimeError(
-                        "File identifier must be a string",
-                        node.line,
-                        node.column,
-                    );
-                }
+                const fileId = this.evaluateFileIdentifier(node);
                 const data = this.serializeRecord(this.evaluate(node.source));
                 return fileOp(
                     {
@@ -1139,6 +1102,8 @@ export class Evaluator {
         }
 
         const increment = step > 0;
+        // Pre-compute statement executors to avoid mapping on each iteration
+        const bodyExecutors = node.body.map((stmt) => () => this.executeStatementBounce(stmt));
 
         return loop(
             () => {
@@ -1151,7 +1116,7 @@ export class Evaluator {
             },
             () =>
                 seqMany(
-                    node.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                    bodyExecutors,
                     () => {
                         const currentValue = ensureNumber(
                             this.environment.get(node.variable),
@@ -1167,11 +1132,13 @@ export class Evaluator {
     }
 
     private evaluateWhileBounce(node: WhileNode): Bounce {
+        // Pre-compute statement executors to avoid mapping on each iteration
+        const bodyExecutors = node.body.map((stmt) => () => this.executeStatementBounce(stmt));
         return loop(
             () => done(this.isTruthy(this.evaluate(node.condition))),
             () =>
                 seqMany(
-                    node.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                    bodyExecutors,
                     () => done(undefined),
                 ),
             () => done(undefined),
@@ -1180,6 +1147,8 @@ export class Evaluator {
 
     private evaluateRepeatBounce(node: RepeatNode): Bounce {
         let firstIteration = true;
+        // Pre-compute statement executors to avoid mapping on each iteration
+        const bodyExecutors = node.body.map((stmt) => () => this.executeStatementBounce(stmt));
         return loop(
             () => {
                 if (firstIteration) {
@@ -1190,7 +1159,7 @@ export class Evaluator {
             },
             () =>
                 seqMany(
-                    node.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                    bodyExecutors,
                     () => done(undefined),
                 ),
             () => done(undefined),
@@ -1487,12 +1456,21 @@ export class Evaluator {
                     );
                 }
             } else {
-                const arg = argNode
-                    ? this.evaluate(argNode)
-                    : this.getDefaultValue(param.type, node.line, node.column);
-                // For array types, we need to pass fromHeap=true to ensure proper deep copy
-                const isArrayType = typeof param.type === "object" && "elementType" in param.type;
-                routineEnvironment.define(param.name, param.type, arg, false, isArrayType);
+                // For complex types (arrays, records), use COW by sharing the heap address
+                const isComplexType = typeof param.type === "object" &&
+                    ("elementType" in param.type || "fields" in param.type);
+
+                if (isComplexType && argNode && isIdentifierNode(argNode)) {
+                    // Get the heap address directly from the variable for COW
+                    const atom = this.environment.getAtom(argNode.name);
+                    const address = atom.getAddress();
+                    routineEnvironment.defineByValCOW(param.name, param.type, address);
+                } else {
+                    const arg = argNode
+                        ? this.evaluate(argNode)
+                        : this.getDefaultValue(param.type, node.line, node.column);
+                    routineEnvironment.define(param.name, param.type, arg, false, false);
+                }
             }
         }
 
@@ -1514,9 +1492,11 @@ export class Evaluator {
 
         const routineInfo = this.globalRoutines.get(routineName);
         const bodyStatements = extractRoutineBody(routineInfo?.node);
+        // Pre-compute statement executors to avoid mapping on each call
+        const bodyExecutors = bodyStatements.map((stmt) => () => this.executeStatementBounce(stmt));
 
         return seqMany(
-            bodyStatements.map((stmt) => () => this.executeStatementBounce(stmt)),
+            bodyExecutors,
             () => {
                 const returnValue = this.context.getReturnValue();
                 this.context = previousContext;
@@ -2300,11 +2280,8 @@ export class Evaluator {
         return result;
     }
 
-    private evaluateBinaryExpression(node: BinaryExpressionNode): unknown {
-        const left = this.evaluate(node.left);
-        const right = this.evaluate(node.right);
-
-        switch (node.operator) {
+    private applyBinaryOperator(operator: string, left: unknown, right: unknown, line?: number, column?: number): unknown {
+        switch (operator) {
             case "+":
                 if (typeof left === "string" || typeof right === "string") {
                     return String(left) + String(right);
@@ -2322,19 +2299,19 @@ export class Evaluator {
 
             case "/":
                 if (Number(right) === 0) {
-                    throw new DivisionByZeroError(node.line, node.column);
+                    throw new DivisionByZeroError(line, column);
                 }
                 return Number(left) / Number(right);
 
             case "DIV":
                 if (Number(right) === 0) {
-                    throw new DivisionByZeroError(node.line, node.column);
+                    throw new DivisionByZeroError(line, column);
                 }
                 return Math.floor(Number(left) / Number(right));
 
             case "MOD":
                 if (Number(right) === 0) {
-                    throw new DivisionByZeroError(node.line, node.column);
+                    throw new DivisionByZeroError(line, column);
                 }
                 return Number(left) % Number(right);
 
@@ -2366,19 +2343,25 @@ export class Evaluator {
                 if (typeof right !== "object" || right === null || !(right instanceof Set)) {
                     throw new RuntimeError(
                         "Right operand of IN must be a SET",
-                        node.line,
-                        node.column,
+                        line,
+                        column,
                     );
                 }
                 return right.has(left);
 
             default:
                 throw new RuntimeError(
-                    `Unknown binary operator: ${node.operator}`,
-                    node.line,
-                    node.column,
+                    `Unknown binary operator: ${operator}`,
+                    line,
+                    column,
                 );
         }
+    }
+
+    private evaluateBinaryExpression(node: BinaryExpressionNode): unknown {
+        const left = this.evaluate(node.left);
+        const right = this.evaluate(node.right);
+        return this.applyBinaryOperator(node.operator, left, right, node.line, node.column);
     }
 
     private evaluateBinaryExpressionBounce(node: BinaryExpressionNode): Bounce {
@@ -2387,95 +2370,13 @@ export class Evaluator {
             (left) =>
                 seq(
                     () => this.evaluateBounce(node.right),
-                    (right) => {
-                        switch (node.operator) {
-                            case "+":
-                                if (typeof left === "string" || typeof right === "string") {
-                                    return done(String(left) + String(right));
-                                }
-                                return done(Number(left) + Number(right));
-
-                            case "&":
-                                return done(String(left) + String(right));
-
-                            case "-":
-                                return done(Number(left) - Number(right));
-
-                            case "*":
-                                return done(Number(left) * Number(right));
-
-                            case "/":
-                                if (Number(right) === 0) {
-                                    throw new DivisionByZeroError(node.line, node.column);
-                                }
-                                return done(Number(left) / Number(right));
-
-                            case "DIV":
-                                if (Number(right) === 0) {
-                                    throw new DivisionByZeroError(node.line, node.column);
-                                }
-                                return done(Math.floor(Number(left) / Number(right)));
-
-                            case "MOD":
-                                if (Number(right) === 0) {
-                                    throw new DivisionByZeroError(node.line, node.column);
-                                }
-                                return done(Number(left) % Number(right));
-
-                            case "=":
-                                return done(this.isEqual(left, right));
-
-                            case "<>":
-                                return done(!this.isEqual(left, right));
-
-                            case "<":
-                                return done(Number(left) < Number(right));
-
-                            case ">":
-                                return done(Number(left) > Number(right));
-
-                            case "<=":
-                                return done(Number(left) <= Number(right));
-
-                            case ">=":
-                                return done(Number(left) >= Number(right));
-
-                            case "AND":
-                                return done(this.isTruthy(left) && this.isTruthy(right));
-
-                            case "OR":
-                                return done(this.isTruthy(left) || this.isTruthy(right));
-
-                            case "IN":
-                                if (
-                                    typeof right !== "object" ||
-                                    right === null ||
-                                    !(right instanceof Set)
-                                ) {
-                                    throw new RuntimeError(
-                                        "Right operand of IN must be a SET",
-                                        node.line,
-                                        node.column,
-                                    );
-                                }
-                                return done(right.has(left));
-
-                            default:
-                                throw new RuntimeError(
-                                    `Unknown binary operator: ${node.operator}`,
-                                    node.line,
-                                    node.column,
-                                );
-                        }
-                    },
+                    (right) => done(this.applyBinaryOperator(node.operator, left, right, node.line, node.column)),
                 ),
         );
     }
 
-    private evaluateUnaryExpression(node: UnaryExpressionNode): unknown {
-        const operand = this.evaluate(node.operand);
-
-        switch (node.operator) {
+    private applyUnaryOperator(operator: string, operand: unknown, line?: number, column?: number): unknown {
+        switch (operator) {
             case "-":
                 return -Number(operand);
 
@@ -2484,32 +2385,22 @@ export class Evaluator {
 
             default:
                 throw new RuntimeError(
-                    `Unknown unary operator: ${node.operator}`,
-                    node.line,
-                    node.column,
+                    `Unknown unary operator: ${operator}`,
+                    line,
+                    column,
                 );
         }
+    }
+
+    private evaluateUnaryExpression(node: UnaryExpressionNode): unknown {
+        const operand = this.evaluate(node.operand);
+        return this.applyUnaryOperator(node.operator, operand, node.line, node.column);
     }
 
     private evaluateUnaryExpressionBounce(node: UnaryExpressionNode): Bounce {
         return seq(
             () => this.evaluateBounce(node.operand),
-            (operand) => {
-                switch (node.operator) {
-                    case "-":
-                        return done(-Number(operand));
-
-                    case "NOT":
-                        return done(!this.isTruthy(operand));
-
-                    default:
-                        throw new RuntimeError(
-                            `Unknown unary operator: ${node.operator}`,
-                            node.line,
-                            node.column,
-                        );
-                }
-            },
+            (operand) => done(this.applyUnaryOperator(node.operator, operand, node.line, node.column)),
         );
     }
 
@@ -2558,7 +2449,26 @@ export class Evaluator {
     }
 
     private evaluateArrayAccessBounce(node: ArrayAccessNode): Bounce {
-        // 异步版本：先异步计算索引，然后再计算地址和读取值
+        const indicesCount = node.indices.length;
+
+        if (indicesCount === 1) {
+            // Fast path for single-dimensional array access (most common case)
+            return seq(
+                () => this.evaluateBounce(node.indices[0]),
+                (value) => {
+                    const index = ensureNumber(value, node.line, node.column);
+                    if (!Number.isInteger(index)) {
+                        throw new RuntimeError("Array index must be INTEGER", node.line, node.column);
+                    }
+                    const arrayAtom = this.resolveArrayRootAtom(node);
+                    const arrayAddress = arrayAtom.getAddress();
+                    const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, index);
+                    return done(this.heap.readUnsafe(elemAddr).value);
+                },
+            );
+        }
+
+        // Multi-dimensional array access (slower path)
         return this.evaluateArrayAccessIndicesBounce(node, 0, [], (indices) => {
             const arrayAtom = this.resolveArrayRootAtom(node);
             const arrayAddress = arrayAtom.getAddress();
@@ -2589,7 +2499,10 @@ export class Evaluator {
         return seq(
             () => this.evaluateBounce(node.indices[index]),
             (value) => {
-                const idx = ensureIndices([value], node.line, node.column)[0];
+                const idx = ensureNumber(value, node.line, node.column);
+                if (!Number.isInteger(idx)) {
+                    throw new RuntimeError("Array index must be INTEGER", node.line, node.column);
+                }
                 accumulated.push(idx);
                 return this.evaluateArrayAccessIndicesBounce(node, index + 1, accumulated, callback);
             },
@@ -3264,8 +3177,9 @@ export class Evaluator {
                 return false;
             }
 
+            const bKeysSet = new Set(bKeys);
             for (const key of aKeys) {
-                if (!bKeys.includes(key) || !this.isEqual(a[key], b[key])) {
+                if (!bKeysSet.has(key) || !this.isEqual(a[key], b[key])) {
                     return false;
                 }
             }
@@ -3465,23 +3379,25 @@ export class Evaluator {
     }
 
     private getArrayElementFromValue(array: unknown[], indices: number[]): unknown {
-        if (indices.length === 1) {
-            const index = indices[0];
+        let currentArray: unknown[] = array;
+        for (let i = 0; i < indices.length; i++) {
+            const index = indices[i];
             if (!Number.isInteger(index)) {
                 throw new IndexError("Array index must be INTEGER");
             }
-            if (index < 1 || index > array.length) {
+            if (index < 1 || index > currentArray.length) {
                 throw new IndexError(`Array index out of bounds: ${index}`);
             }
-
-            return array[index - 1];
+            if (i === indices.length - 1) {
+                return currentArray[index - 1];
+            }
+            const subArray = currentArray[index - 1];
+            if (!Array.isArray(subArray)) {
+                throw new RuntimeError("Array access on non-array value");
+            }
+            currentArray = subArray;
         }
-
-        const subArray = array[indices[0] - 1];
-        if (!Array.isArray(subArray)) {
-            throw new RuntimeError("Array access on non-array value");
-        }
-        return this.getArrayElementFromValue(subArray, indices.slice(1));
+        return undefined;
     }
 
     private setArrayElement(array: unknown, indices: number[], value: unknown): void {
@@ -3493,24 +3409,25 @@ export class Evaluator {
     }
 
     private setArrayElementInValue(array: unknown[], indices: number[], value: unknown): void {
-        if (indices.length === 1) {
-            const index = indices[0];
+        let currentArray: unknown[] = array;
+        for (let i = 0; i < indices.length; i++) {
+            const index = indices[i];
             if (!Number.isInteger(index)) {
                 throw new IndexError("Array index must be INTEGER");
             }
-            if (index < 1 || index > array.length) {
+            if (index < 1 || index > currentArray.length) {
                 throw new IndexError(`Array index out of bounds: ${index}`);
             }
-
-            array[index - 1] = value;
-            return;
+            if (i === indices.length - 1) {
+                currentArray[index - 1] = value;
+                return;
+            }
+            const subArray = currentArray[index - 1];
+            if (!Array.isArray(subArray)) {
+                throw new RuntimeError("Array access on non-array value");
+            }
+            currentArray = subArray;
         }
-
-        const subArray = array[indices[0] - 1];
-        if (!Array.isArray(subArray)) {
-            throw new RuntimeError("Array access on non-array value");
-        }
-        this.setArrayElementInValue(subArray, indices.slice(1), value);
     }
 
     private initializeBuiltInRoutines(): void {

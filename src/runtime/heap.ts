@@ -52,7 +52,22 @@ export class Heap {
             address = this.nextAddress++;
         }
 
-        const storedValue = this.deepCopyValue(value, type, fromHeap);
+        // Fast path for primitive types - avoid function call overhead
+        let storedValue: unknown;
+        if (typeof type === "string") {
+            storedValue = value ?? this.getDefaultValue(type);
+        } else if (typeof type === "object" && "kind" in type) {
+            const kind = type.kind;
+            if (kind === "ENUM" || kind === "POINTER" || kind === "CLASS") {
+                storedValue = value ?? this.getDefaultValue(type);
+            } else if (kind === "SET") {
+                storedValue = value instanceof Set ? new Set(value) : (value ?? this.getDefaultValue(type));
+            } else {
+                storedValue = this.deepCopyValue(value, type, fromHeap);
+            }
+        } else {
+            storedValue = this.deepCopyValue(value, type, fromHeap);
+        }
 
         const obj: HeapObject = {
             value: storedValue,
@@ -129,6 +144,37 @@ export class Heap {
         }
 
         obj.value = this.deepCopyValue(value, type, true);
+    }
+
+    /**
+     * Write with Copy-on-Write semantics.
+     * If the object is shared (refCount > 1), create a copy and write to the copy.
+     * Returns the address to use (original or new copy).
+     */
+    writeCOW(address: number, value: unknown, type: TypeInfo): number {
+        if (address === NULL_POINTER) {
+            throw new RuntimeError("Cannot write to null pointer");
+        }
+
+        const obj = this.memory.get(address);
+        if (!obj) {
+            throw new RuntimeError(`Invalid memory address: ${address}`);
+        }
+
+        if (!obj.isMutable) {
+            throw new RuntimeError("Cannot modify constant");
+        }
+
+        // If shared, create a copy
+        if (obj.refCount > 1) {
+            obj.refCount--;
+            const newAddress = this.allocate(obj.value, type, true, true);
+            this.write(newAddress, value, type);
+            return newAddress;
+        }
+
+        obj.value = this.deepCopyValue(value, type, true);
+        return address;
     }
 
     incrementRef(address: number): void {
@@ -344,30 +390,33 @@ export class Heap {
                 elementType: type.elementType,
                 bounds: type.bounds.slice(1),
             };
+            // Fast path: when not fromHeap, directly allocate elements without checking memory
+            if (!fromHeap) {
+                return array.map((element) => this.allocate(element, subArrayType));
+            }
             return array.map((element) => {
-                if (fromHeap && typeof element === "number" && this.memory.has(element)) {
-                    const srcObj = this.memory.get(element)!;
-                    const newAddr = this.allocate(
-                        srcObj.value,
-                        srcObj.type,
-                        srcObj.isMutable,
-                        true,
-                    );
-                    return newAddr;
+                if (typeof element === "number") {
+                    const srcObj = this.memory.get(element);
+                    if (srcObj) {
+                        return this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
+                    }
                 }
-                const newAddr = this.allocate(element, subArrayType);
-                return newAddr;
+                return this.allocate(element, subArrayType);
             });
         }
 
+        // Fast path: when not fromHeap, directly allocate elements without checking memory
+        if (!fromHeap) {
+            return array.map((element) => this.allocate(element, type.elementType));
+        }
         return array.map((element) => {
-            if (fromHeap && typeof element === "number" && this.memory.has(element)) {
-                const srcObj = this.memory.get(element)!;
-                const newAddr = this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
-                return newAddr;
+            if (typeof element === "number") {
+                const srcObj = this.memory.get(element);
+                if (srcObj) {
+                    return this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
+                }
             }
-            const newAddr = this.allocate(element, type.elementType);
-            return newAddr;
+            return this.allocate(element, type.elementType);
         });
     }
 

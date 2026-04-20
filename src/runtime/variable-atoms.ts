@@ -58,11 +58,13 @@ export class VariableAtom {
     address: number;
     type: TypeInfo;
     isConstant: boolean;
+    isByRef: boolean;
 
-    constructor(address: number, type: TypeInfo, isConstant: boolean = false) {
+    constructor(address: number, type: TypeInfo, isConstant: boolean = false, isByRef: boolean = false) {
         this.address = address;
         this.type = type;
         this.isConstant = isConstant;
+        this.isByRef = isByRef;
     }
 
     getValue(heap: Heap): unknown {
@@ -75,6 +77,19 @@ export class VariableAtom {
         }
 
         heap.write(this.address, value, this.type);
+    }
+
+    /**
+     * Set value with Copy-on-Write semantics.
+     * If the underlying object is shared (refCount > 1), creates a copy.
+     * Updates the address if a new copy is created.
+     */
+    setValueCOW(heap: Heap, value: unknown): void {
+        if (this.isConstant) {
+            throw new RuntimeError("Cannot assign to constant");
+        }
+
+        this.address = heap.writeCOW(this.address, value, this.type);
     }
 
     getAddress(): number {
@@ -93,7 +108,7 @@ export class VariableAtom {
 
     static createForByRef(address: number, type: TypeInfo, heap: Heap): VariableAtom {
         heap.incrementRef(address);
-        return new VariableAtom(address, type, false);
+        return new VariableAtom(address, type, false, true);
     }
 }
 
