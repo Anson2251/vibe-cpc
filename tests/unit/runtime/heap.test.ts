@@ -78,7 +78,9 @@ describe("Heap", () => {
         });
 
         test("throws for null pointer write", () => {
-            expect(() => heap.write(NULL_POINTER, 42, PseudocodeType.INTEGER)).toThrow(RuntimeError);
+            expect(() => heap.write(NULL_POINTER, 42, PseudocodeType.INTEGER)).toThrow(
+                RuntimeError,
+            );
         });
 
         test("throws for invalid address write", () => {

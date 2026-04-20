@@ -510,6 +510,11 @@ export class DebuggerController {
             return;
         }
 
+        if (snapshot.reason === "debugger-statement") {
+            await this.pause(snapshot);
+            return;
+        }
+
         if (this.shouldPauseForBreakpoint(snapshot)) {
             const breakpointSnapshot: DebugSnapshot = {
                 ...snapshot,

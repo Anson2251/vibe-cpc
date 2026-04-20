@@ -238,10 +238,12 @@ import {
 import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
 
 import builtInFunctions, { EXTENDED_BUILTIN_NAMES } from "./builtin-functions";
-import { RuntimeFileManager } from "./file-manager";
-import { FileOperationEvaluator } from "./file-operations-evaluator";
-import { ResultAsync } from "neverthrow";
+import { RuntimeFileManager, FileMode } from "./file-manager";
+import { IOQueue } from "./io-queue";
 import { RuntimeAsyncResult, toRuntimeError } from "../result";
+import { ResultAsync } from "neverthrow";
+import { Bounce, done, io, seq, seqMany, loop, fileOp, debugPause } from "./trampoline";
+import { TrampolineEngine } from "./trampoline";
 
 import { Environment, ExecutionContext, RoutineInfo } from "./environment";
 import { IOInterface } from "../io/io-interface";
@@ -260,16 +262,27 @@ import {
     parseRecordData as parseRecordDataHelper,
     reconstructRecord as reconstructRecordHelper,
 } from "./record-serializer";
-import {
-    resolveType as resolveTypeHelper,
-} from "./type-resolver";
+import { resolveType as resolveTypeHelper } from "./type-resolver";
+
+function extractRoutineBody(node: ASTNode | undefined): StatementNode[] {
+    if (!node || typeof node !== "object") {
+        return [];
+    }
+    // oxlint-disable-next-line no-unsafe-type-assertion
+    const maybeBody = (node as unknown as Record<string, unknown>).body;
+    if (!Array.isArray(maybeBody)) {
+        return [];
+    }
+    // oxlint-disable-next-line no-unsafe-type-assertion
+    return maybeBody as StatementNode[];
+}
 
 export class Evaluator {
     private environment: Environment;
     context: ExecutionContext;
     private io: IOInterface;
     private fileManager: RuntimeFileManager;
-    private fileOperations: FileOperationEvaluator;
+    private ioQueue: IOQueue;
     private globalRoutines: Map<string, RoutineInfo> = new Map();
     private userDefinedTypes: Map<string, UserDefinedTypeInfo> = new Map();
     private enumTypes: Map<string, EnumTypeInfo> = new Map();
@@ -291,13 +304,7 @@ export class Evaluator {
         this.environment = new Environment(this.heap);
         this.context = new ExecutionContext(this.environment);
         this.fileManager = new RuntimeFileManager(io);
-        this.fileOperations = new FileOperationEvaluator(this.fileManager, {
-            evaluateExpression: (expression) => this.evaluateR(expression),
-            assignToTarget: (target, value, line, column) =>
-                this.assignToTargetR(target, value, line, column),
-            serializeRecord: (value) => this.serializeRecord(value),
-            deserializeRecord: (data, target) => this.deserializeRecord(data, target),
-        });
+        this.ioQueue = new IOQueue(this.fileManager);
         this.initializeBuiltInRoutines();
     }
 
@@ -318,24 +325,38 @@ export class Evaluator {
     }
 
     evaluateProgramR(node: ProgramNode): RuntimeAsyncResult<unknown> {
-        return ResultAsync.fromPromise(this.evaluateProgramImpl(node), (error: unknown) =>
+        return ResultAsync.fromPromise(this.evaluateProgramBounce(node), (error: unknown) =>
             toRuntimeError(error, node.line, node.column),
         );
     }
 
+    async evaluateProgramBounce(node: ProgramNode): Promise<unknown> {
+        const bounce = this.executeStatementSeq(node.body);
+        const engine = new TrampolineEngine(this.ioQueue, {
+            onInput: async (prompt) => this.io.input(prompt),
+            onOutput: (data) => {
+                this.io.output(data);
+            },
+        });
+        return engine.run(bounce);
+    }
+
+    private executeStatementSeq(statements: StatementNode[]): Bounce {
+        return seqMany(
+            statements.map((stmt) => () => this.executeStatementBounce(stmt)),
+            () => done(undefined),
+        );
+    }
+
     private async evaluateProgramImpl(node: ProgramNode): Promise<unknown> {
-        let result: unknown = undefined;
-        for (const statement of node.body) {
-            result = await this.executeStatement(statement);
-        }
-        return result;
+        return this.evaluateProgramBounce(node);
     }
 
     async evaluateProgram(node: ProgramNode): Promise<unknown> {
         return this.evaluateProgramImpl(node);
     }
 
-    async evaluate(node: ASTNode): Promise<unknown> {
+    evaluate(node: ASTNode): unknown {
         if (!isEvaluatableNode(node)) {
             throw new RuntimeError(`Unknown node type: ${node.type}`, node.line, node.column);
         }
@@ -349,35 +370,35 @@ export class Evaluator {
 
         switch (node.type) {
             case "VariableDeclaration":
-                await this.evaluateVariableDeclaration(node);
+                this.evaluateVariableDeclaration(node);
                 return undefined;
 
             case "DeclareStatement":
-                await this.evaluateDeclareStatement(node);
+                this.evaluateDeclareStatement(node);
                 return undefined;
 
             case "Assignment":
-                await this.evaluateAssignment(node);
+                this.evaluateAssignment(node);
                 return undefined;
 
             case "If":
-                await this.evaluateIf(node);
+                this.evaluateIf(node);
                 return undefined;
 
             case "Case":
-                await this.evaluateCase(node);
+                this.evaluateCase(node);
                 return undefined;
 
             case "For":
-                await this.evaluateFor(node);
+                this.evaluateFor(node);
                 return undefined;
 
             case "While":
-                await this.evaluateWhile(node);
+                this.evaluateWhile(node);
                 return undefined;
 
             case "Repeat":
-                await this.evaluateRepeat(node);
+                this.evaluateRepeat(node);
                 return undefined;
 
             case "ProcedureDeclaration":
@@ -389,55 +410,195 @@ export class Evaluator {
                 return undefined;
 
             case "CallStatement":
-                await this.evaluateCallStatement(node);
-                return undefined;
-
             case "Input":
-                await this.evaluateInput(node);
                 return undefined;
 
-            case "Output":
-                await this.evaluateOutput(node);
+            case "Output": {
+                const outputValues: string[] = [];
+                for (const expression of node.expressions) {
+                    const value = this.evaluate(expression);
+                    outputValues.push(String(value));
+                }
+                this.io.output(outputValues.join("") + "\n");
                 return undefined;
+            }
 
-            case "Return":
-                await this.evaluateReturn(node);
+            case "Return": {
+                let value: unknown;
+                if (node.value) {
+                    value = this.evaluate(node.value);
+                }
+                this.context.setReturnValue(value);
+                this.context.shouldReturn = true;
                 return undefined;
+            }
 
-            case "OpenFile":
-                await this.fileOperations.openFile(node);
-                return undefined;
+            case "OpenFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "open",
+                        fileIdentifier: fileId,
+                        mode: node.mode as FileMode,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
-            case "CloseFile":
-                await this.fileOperations.closeFile(node);
-                return undefined;
+            case "CloseFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "close",
+                        fileIdentifier: fileId,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
-            case "ReadFile":
-                await this.fileOperations.readFile(node);
-                return undefined;
+            case "ReadFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "read",
+                        fileIdentifier: fileId,
+                        target: (content) => {
+                            this.assignToTarget(node.target, content, node.line, node.column);
+                        },
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
-            case "WriteFile":
-                await this.fileOperations.writeFile(node);
-                return undefined;
+            case "WriteFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                const values = node.expressions.map((expr) => String(this.evaluate(expr)));
+                return fileOp(
+                    {
+                        type: "write",
+                        fileIdentifier: fileId,
+                        values,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
-            case "Seek":
-                await this.fileOperations.seek(node);
-                return undefined;
+            case "Seek": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                const position = this.evaluate(node.position);
+                if (typeof position !== "number") {
+                    throw new RuntimeError(
+                        "Seek position must be a number",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "seek",
+                        fileIdentifier: fileId,
+                        position,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
-            case "GetRecord":
-                await this.fileOperations.getRecord(node);
-                return undefined;
+            case "GetRecord": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "getRecord",
+                        fileIdentifier: fileId,
+                        target: (data) => {
+                            this.deserializeRecord(data, node.target);
+                        },
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
-            case "PutRecord":
-                await this.fileOperations.putRecord(node);
-                return undefined;
+            case "PutRecord": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                const data = this.serializeRecord(this.evaluate(node.source));
+                return fileOp(
+                    {
+                        type: "putRecord",
+                        fileIdentifier: fileId,
+                        data,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
 
             case "TypeDeclaration":
                 this.evaluateTypeDeclaration(node);
                 return undefined;
 
             case "SetDeclaration":
-                await this.evaluateSetDeclaration(node);
+                this.evaluateSetDeclaration(node);
                 return undefined;
 
             case "ClassDeclaration":
@@ -448,11 +609,10 @@ export class Evaluator {
                 return undefined;
 
             case "SuperCall":
-                await this.evaluateSuperCall(node);
+                this.evaluateSuperCallSync(node);
                 return undefined;
 
             case "Debugger":
-                await this.evaluateDebugger(node);
                 return undefined;
 
             case "BinaryExpression":
@@ -477,7 +637,7 @@ export class Evaluator {
                 return this.evaluateMemberAccess(node);
 
             case "NewExpression":
-                return this.evaluateNewExpressionAsync(node);
+                return this.evaluateNewExpression(node);
 
             case "TypeCast":
                 return this.evaluateTypeCast(node);
@@ -492,7 +652,7 @@ export class Evaluator {
                 return this.evaluateAddressOf(node);
 
             case "DisposeStatement":
-                await this.evaluateDisposeStatement(node);
+                this.evaluateDisposeStatement(node);
                 return undefined;
 
             case "ImportStatement":
@@ -527,39 +687,942 @@ export class Evaluator {
         }
     }
 
-    evaluateR(node: ASTNode): RuntimeAsyncResult<unknown> {
-        return ResultAsync.fromPromise(this.evaluate(node), (error: unknown) =>
-            toRuntimeError(error, node.line, node.column),
+    evaluateR(node: ASTNode): unknown {
+        try {
+            return this.evaluate(node);
+        } catch (error) {
+            throw toRuntimeError(error, node.line, node.column);
+        }
+    }
+
+    private evaluateBounce(node: ASTNode): Bounce {
+        if (!isEvaluatableNode(node)) {
+            throw new RuntimeError(`Unknown node type: ${node.type}`, node.line, node.column);
+        }
+
+        if (node.line !== undefined) {
+            this.context.currentLine = node.line;
+        }
+        if (node.column !== undefined) {
+            this.context.currentColumn = node.column;
+        }
+
+        switch (node.type) {
+            case "VariableDeclaration":
+                this.evaluateVariableDeclaration(node);
+                return done(undefined);
+
+            case "DeclareStatement":
+                this.evaluateDeclareStatement(node);
+                return done(undefined);
+
+            case "Assignment":
+                this.evaluateAssignment(node);
+                return done(undefined);
+
+            case "If":
+                return this.evaluateIfBounce(node);
+
+            case "Case":
+                return this.evaluateCaseBounce(node);
+
+            case "For":
+                return this.evaluateForBounce(node);
+
+            case "While":
+                return this.evaluateWhileBounce(node);
+
+            case "Repeat":
+                return this.evaluateRepeatBounce(node);
+
+            case "ProcedureDeclaration":
+                this.evaluateProcedureDeclaration(node);
+                return done(undefined);
+
+            case "FunctionDeclaration":
+                this.evaluateFunctionDeclaration(node);
+                return done(undefined);
+
+            case "CallStatement":
+                return this.evaluateCallStatementBounce(node);
+
+            case "Input":
+                return this.evaluateInputBounce(node);
+
+            case "Output":
+                return this.evaluateOutputBounce(node);
+
+            case "Return":
+                return this.evaluateReturnBounce(node);
+
+            case "OpenFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "open",
+                        fileIdentifier: fileId,
+                        mode: node.mode as FileMode,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "CloseFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "close",
+                        fileIdentifier: fileId,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "ReadFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "read",
+                        fileIdentifier: fileId,
+                        target: (content) => {
+                            this.assignToTarget(node.target, content, node.line, node.column);
+                        },
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "WriteFile": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                const values = node.expressions.map((expr) => String(this.evaluate(expr)));
+                return fileOp(
+                    {
+                        type: "write",
+                        fileIdentifier: fileId,
+                        values,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "Seek": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                const position = this.evaluate(node.position);
+                if (typeof position !== "number") {
+                    throw new RuntimeError(
+                        "Seek position must be a number",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "seek",
+                        fileIdentifier: fileId,
+                        position,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "GetRecord": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return fileOp(
+                    {
+                        type: "getRecord",
+                        fileIdentifier: fileId,
+                        target: (data) => {
+                            this.deserializeRecord(data, node.target);
+                        },
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "PutRecord": {
+                const fileId = this.evaluate(node.fileIdentifier);
+                if (typeof fileId !== "string") {
+                    throw new RuntimeError(
+                        "File identifier must be a string",
+                        node.line,
+                        node.column,
+                    );
+                }
+                const data = this.serializeRecord(this.evaluate(node.source));
+                return fileOp(
+                    {
+                        type: "putRecord",
+                        fileIdentifier: fileId,
+                        data,
+                        line: node.line,
+                        column: node.column,
+                    },
+                    () => done(undefined),
+                );
+            }
+
+            case "TypeDeclaration":
+                this.evaluateTypeDeclaration(node);
+                return done(undefined);
+
+            case "SetDeclaration":
+                this.evaluateSetDeclaration(node);
+                return done(undefined);
+
+            case "ClassDeclaration":
+                this.evaluateClassDeclaration(node);
+                return done(undefined);
+
+            case "MethodDeclaration":
+                return done(undefined);
+
+            case "SuperCall":
+                return this.evaluateSuperCallBounce(node);
+
+            case "Debugger":
+                if (this.strictMode) {
+                    throw new RuntimeError(
+                        "DEBUGGER is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
+                    );
+                }
+                if (this.debuggerController) {
+                    const snapshot = this.buildDebugSnapshot(
+                        "debugger-statement",
+                        node.line,
+                        node.column,
+                    );
+                    return debugPause(
+                        async () => this.debuggerController!.maybePause(snapshot),
+                        () => done(undefined),
+                    );
+                }
+                return done(undefined);
+
+            case "BinaryExpression":
+                return done(this.evaluateBinaryExpression(node));
+
+            case "UnaryExpression":
+                return done(this.evaluateUnaryExpression(node));
+
+            case "Identifier":
+                return done(this.evaluateIdentifier(node));
+
+            case "Literal":
+                return done(this.evaluateLiteral(node));
+
+            case "ArrayAccess":
+                return done(this.evaluateArrayAccess(node));
+
+            case "CallExpression":
+                return this.evaluateCallExpressionBounce(node);
+
+            case "MemberAccess":
+                return done(this.evaluateMemberAccess(node));
+
+            case "NewExpression":
+                return done(this.evaluateNewExpression(node));
+
+            case "TypeCast":
+                return done(this.evaluateTypeCast(node));
+
+            case "SetLiteral":
+                return done(this.evaluateSetLiteral(node));
+
+            case "PointerDereference":
+                return done(this.evaluatePointerDereference(node));
+
+            case "AddressOf":
+                return done(this.evaluateAddressOf(node));
+
+            case "DisposeStatement":
+                this.evaluateDisposeStatement(node);
+                return done(undefined);
+
+            case "ImportStatement":
+                if (this.strictMode) {
+                    throw new RuntimeError(
+                        "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return done(undefined);
+
+            case "ImportExpression":
+                if (this.strictMode) {
+                    throw new RuntimeError(
+                        "IMPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return done(undefined);
+
+            case "ExportStatement":
+                if (this.strictMode) {
+                    throw new RuntimeError(
+                        "EXPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        node.line,
+                        node.column,
+                    );
+                }
+                return done(undefined);
+
+            default:
+                return done(this.evaluate(node));
+        }
+    }
+
+    private executeStatementBounce(statement: StatementNode): Bounce {
+        if (this.context.shouldReturnFromRoutine()) {
+            return done(undefined);
+        }
+        this.onStep?.();
+        if (this.debuggerController) {
+            const snapshot = this.buildDebugSnapshot("step", statement.line, statement.column);
+            return debugPause(
+                async () => this.debuggerController!.maybePause(snapshot),
+                () => this.evaluateBounce(statement),
+            );
+        }
+        return this.evaluateBounce(statement);
+    }
+
+    private evaluateIfBounce(node: IfNode): Bounce {
+        const condition = this.evaluate(node.condition);
+
+        if (this.isTruthy(condition)) {
+            return seqMany(
+                node.thenBranch.map((stmt) => () => this.executeStatementBounce(stmt)),
+                () => done(undefined),
+            );
+        } else if (node.elseBranch) {
+            return seqMany(
+                node.elseBranch.map((stmt) => () => this.executeStatementBounce(stmt)),
+                () => done(undefined),
+            );
+        }
+        return done(undefined);
+    }
+
+    private evaluateCaseBounce(node: CaseNode): Bounce {
+        const expressionValue = ensureStringOrNumber(
+            this.evaluate(node.expression),
+            node.line,
+            node.column,
+        );
+
+        for (const caseItem of node.cases) {
+            if (caseItem.values.length === 2) {
+                const value1 = ensureStringOrNumber(
+                    this.evaluate(caseItem.values[0]),
+                    node.line,
+                    node.column,
+                );
+                const value2 = ensureStringOrNumber(
+                    this.evaluate(caseItem.values[1]),
+                    node.line,
+                    node.column,
+                );
+
+                if (value1 <= expressionValue && expressionValue <= value2) {
+                    return seqMany(
+                        caseItem.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                        () => done(undefined),
+                    );
+                }
+            } else if (caseItem.values.length === 1) {
+                const value = this.evaluate(caseItem.values[0]);
+
+                if (this.isEqual(expressionValue, value)) {
+                    return seqMany(
+                        caseItem.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                        () => done(undefined),
+                    );
+                }
+            } else {
+                throw new RuntimeError("Invalid case item", node.line, node.column);
+            }
+        }
+
+        if (node.otherwise) {
+            return seqMany(
+                node.otherwise.map((stmt) => () => this.executeStatementBounce(stmt)),
+                () => done(undefined),
+            );
+        }
+
+        return done(undefined);
+    }
+
+    private evaluateForBounce(node: ForNode): Bounce {
+        const start = ensureNumber(this.evaluate(node.start), node.line, node.column);
+        const end = ensureNumber(this.evaluate(node.end), node.line, node.column);
+        const step = node.step ? ensureNumber(this.evaluate(node.step), node.line, node.column) : 1;
+
+        if (!this.environment.has(node.variable)) {
+            this.environment.define(node.variable, PseudocodeType.INTEGER, start);
+        } else {
+            this.environment.assign(node.variable, start);
+        }
+
+        const increment = step > 0;
+
+        return loop(
+            () => {
+                const currentValue = ensureNumber(
+                    this.environment.get(node.variable),
+                    node.line,
+                    node.column,
+                );
+                return done(increment ? currentValue <= end : currentValue >= end);
+            },
+            () =>
+                seqMany(
+                    node.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                    () => {
+                        const currentValue = ensureNumber(
+                            this.environment.get(node.variable),
+                            node.line,
+                            node.column,
+                        );
+                        this.environment.assign(node.variable, currentValue + step);
+                        return done(undefined);
+                    },
+                ),
+            () => done(undefined),
         );
     }
 
+    private evaluateWhileBounce(node: WhileNode): Bounce {
+        return loop(
+            () => done(this.isTruthy(this.evaluate(node.condition))),
+            () =>
+                seqMany(
+                    node.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                    () => done(undefined),
+                ),
+            () => done(undefined),
+        );
+    }
 
-    private async executeStatement(statement: StatementNode): Promise<unknown> {
-        this.onStep?.();
+    private evaluateRepeatBounce(node: RepeatNode): Bounce {
+        let firstIteration = true;
+        return loop(
+            () => {
+                if (firstIteration) {
+                    firstIteration = false;
+                    return done(true);
+                }
+                return done(!this.isTruthy(this.evaluate(node.condition)));
+            },
+            () =>
+                seqMany(
+                    node.body.map((stmt) => () => this.executeStatementBounce(stmt)),
+                    () => done(undefined),
+                ),
+            () => done(undefined),
+        );
+    }
 
-        if (this.debuggerController) {
-            const snapshot = this.buildDebugSnapshot("step", statement.line, statement.column);
-            await this.debuggerController.maybePause(snapshot);
+    private evaluateCallStatementBounce(node: CallStatementNode): Bounce {
+        if (!node.namespace && this.environment.hasRoutine(node.name)) {
+            const signature = this.environment.getRoutine(node.name);
+            if (signature.returnType) {
+                throw new RuntimeError(
+                    `Cannot CALL function '${node.name}', use it in an expression instead`,
+                    node.line,
+                    node.column,
+                );
+            }
         }
+
+        return this.evaluateCallExpressionBounce({
+            type: "CallExpression",
+            name: node.name,
+            namespace: node.namespace,
+            arguments: node.arguments,
+            line: node.line,
+            column: node.column,
+        });
+    }
+
+    private evaluateInputBounce(node: InputNode): Bounce {
+        let promptText = "";
+
+        if (node.prompt) {
+            const promptValue = this.evaluate(node.prompt);
+            promptText = String(promptValue);
+        }
+
+        return io("input", promptText, (input: string) => {
+            let targetName = "";
+            if (node.target.type === "Identifier") {
+                targetName = node.target.name;
+            } else {
+                throw new RuntimeError("Invalid input target", node.line, node.column);
+            }
+
+            const targetType = this.environment.getType(targetName);
+            const inputValue = typeof input === "string" ? input : String(input);
+            const value = this.convertInput(
+                inputValue,
+                ensurePseudocodeType(targetType, node.line, node.column),
+            );
+
+            if (node.target.type === "Identifier") {
+                this.environment.assign(targetName, value);
+            }
+            return done(undefined);
+        });
+    }
+
+    private evaluateOutputBounce(node: OutputNode): Bounce {
+        if (node.expressions.length === 0) {
+            return io("output", "\n", () => done(undefined));
+        }
+
+        const values: string[] = [];
+
+        return seqMany(
+            node.expressions.map(
+                (expr) => () =>
+                    seq(
+                        () => this.evaluateBounce(expr),
+                        (value) => {
+                            values.push(String(value));
+                            return done(undefined);
+                        },
+                    ),
+            ),
+            () => io("output", values.join("") + "\n", () => done(undefined)),
+        );
+    }
+
+    private evaluateReturnBounce(node: ReturnNode): Bounce {
+        if (node.value) {
+            return seq(
+                () => this.evaluateBounce(node.value!),
+                (value) => {
+                    this.context.setReturnValue(value);
+                    this.context.shouldReturn = true;
+                    return done(undefined);
+                },
+            );
+        }
+
+        this.context.setReturnValue(undefined);
+        this.context.shouldReturn = true;
+        return done(undefined);
+    }
+
+    private evaluateSuperCallSync(node: SuperCallNode): void {
+        const selfAddress = this.environment.get("SELF");
+        if (typeof selfAddress !== "number") {
+            throw new RuntimeError(
+                "SUPER can only be used inside a method",
+                node.line,
+                node.column,
+            );
+        }
+
+        const selfHeapObj = this.heap.readUnsafe(selfAddress);
+        const selfType = selfHeapObj.type;
+        if (typeof selfType !== "object" || !("name" in selfType)) {
+            throw new RuntimeError(
+                "SELF does not refer to a class instance",
+                node.line,
+                node.column,
+            );
+        }
+
+        const className = selfType.name;
+        const classDef = this.classDefinitions.get(className);
+        if (!classDef || !classDef.inherits) {
+            throw new RuntimeError(
+                `Class '${className}' does not inherit from any class`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const parentClassName = classDef.inherits;
+        const parentMethodBodies = this.classMethodBodies.get(parentClassName);
+        if (!parentMethodBodies) {
+            throw new RuntimeError(
+                `Parent class '${parentClassName}' not found`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const method = parentMethodBodies.get(node.methodName);
+        if (!method) {
+            throw new RuntimeError(
+                `Method '${node.methodName}' not found in parent class '${parentClassName}'`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const routineEnvironment = this.environment.createChild();
+        routineEnvironment.define("SELF", PseudocodeType.INTEGER, selfAddress, true);
+
+        const fullParentClassDef = this.resolveFullClassDefinition(parentClassName);
+        if (fullParentClassDef) {
+            this.bindObjectFieldsToEnvironment(selfAddress, fullParentClassDef, routineEnvironment);
+        }
+
+        for (let i = 0; i < method.parameters.length; i++) {
+            const param = method.parameters[i];
+            const argNode = node.arguments[i];
+            const arg = this.evaluate(argNode);
+            routineEnvironment.define(param.name, param.dataType, arg, false);
+        }
+
+        const previousContext = this.context;
+        const previousEnvironment = this.environment;
+        this.context = new ExecutionContext(routineEnvironment);
+        this.environment = routineEnvironment;
 
         try {
-            return await this.evaluate(statement);
-        } catch (error) {
-            if (this.debuggerController && error instanceof RuntimeError) {
-                const snapshot = this.buildDebugSnapshot(
-                    "error",
-                    error.line ?? statement.line,
-                    error.column ?? statement.column,
-                );
-                snapshot.error = {
-                    message: error.message,
-                    line: error.line,
-                    column: error.column,
-                };
-                await this.debuggerController.maybePause(snapshot);
+            for (const statement of method.body) {
+                this.executeStatementSync(statement);
+                if (this.context.shouldReturnFromRoutine()) {
+                    break;
+                }
             }
-            throw error;
+        } finally {
+            this.context = previousContext;
+            this.environment = previousEnvironment;
+            routineEnvironment.disposeScope();
         }
+    }
+
+    private evaluateSuperCallBounce(node: SuperCallNode): Bounce {
+        this.evaluateSuperCallSync(node);
+        return done(undefined);
+    }
+
+    private evaluateCallExpressionBounce(node: CallExpressionNode): Bounce {
+        const routineName = node.name;
+
+        if (node.namespace) {
+            const methodResult = this.tryObjectMethodCallSync(node);
+            if (methodResult.handled) {
+                return done(methodResult.value);
+            }
+
+            const nsInfo = this.namespaceImports.get(node.namespace);
+            if (!nsInfo) {
+                throw new RuntimeError(
+                    `Unknown namespace '${node.namespace}'`,
+                    node.line,
+                    node.column,
+                );
+            }
+            if (!nsInfo.exportedNames.includes(routineName)) {
+                throw new RuntimeError(
+                    `'${routineName}' is not exported from '${node.namespace}'`,
+                    node.line,
+                    node.column,
+                );
+            }
+        } else if (this.environment.has("SELF")) {
+            const selfMethodResult = this.tryObjectMethodCallSync({
+                ...node,
+                namespace: "SELF",
+            });
+            if (selfMethodResult.handled) {
+                return done(selfMethodResult.value);
+            }
+        }
+
+        if (routineName === "EOF") {
+            if (node.arguments.length !== 1) {
+                throw new RuntimeError("EOF expects exactly one argument", node.line, node.column);
+            }
+            const fileId = this.evaluate(node.arguments[0]);
+            if (typeof fileId !== "string") {
+                throw new RuntimeError(
+                    "EOF expects a string file identifier",
+                    node.line,
+                    node.column,
+                );
+            }
+            let eofResult = false;
+            this.ioQueue.enqueue({
+                type: "eof",
+                fileIdentifier: fileId,
+                target: (isEof) => {
+                    eofResult = isEof;
+                },
+                line: node.line,
+                column: node.column,
+            });
+            return done(eofResult);
+        }
+
+        if (this.strictMode && EXTENDED_BUILTIN_NAMES.has(routineName)) {
+            throw new RuntimeError(
+                `'${routineName}' is not a CAIE standard function (CAIE_ONLY mode is enabled)`,
+                node.line,
+                node.column,
+            );
+        }
+
+        if (routineName === "TYPEOF") {
+            return done(this.evaluateTypeofSync(node));
+        }
+
+        if (this.globalRoutines.has(routineName)) {
+            const routineInfo = this.globalRoutines.get(routineName)!;
+
+            if (routineInfo.isBuiltIn && routineInfo.implementation) {
+                const args = node.arguments.map((arg) => this.evaluate(arg));
+                return done(routineInfo.implementation(...args));
+            }
+        }
+
+        const signature = this.environment.getRoutine(routineName);
+
+        const routineEnvironment = this.environment.createChild();
+
+        for (let i = 0; i < signature.parameters.length; i++) {
+            const param = signature.parameters[i];
+            const argNode = node.arguments[i];
+
+            if (param.mode === ParameterMode.BY_REFERENCE) {
+                if (!argNode) {
+                    throw new RuntimeError(
+                        `BYREF parameter '${param.name}' requires an argument`,
+                        node.line,
+                        node.column,
+                    );
+                }
+
+                if (isIdentifierNode(argNode)) {
+                    const callerAtom = this.environment.getAtom(argNode.name);
+                    routineEnvironment.defineByRef(param.name, param.type, callerAtom.getAddress());
+                } else if (isArrayAccessNode(argNode) || isMemberAccessNode(argNode)) {
+                    const address = this.resolveTargetAddress(argNode);
+                    routineEnvironment.defineByRef(param.name, param.type, address);
+                } else {
+                    throw new RuntimeError(
+                        `BYREF parameter '${param.name}' requires a variable, array element, or record field argument`,
+                        node.line,
+                        node.column,
+                    );
+                }
+            } else {
+                const arg = argNode
+                    ? this.evaluate(argNode)
+                    : this.getDefaultValue(param.type, node.line, node.column);
+                routineEnvironment.define(param.name, param.type, arg, false);
+            }
+        }
+
+        const previousContext = this.context;
+        const previousEnvironment = this.environment;
+        const routineContext = new ExecutionContext(routineEnvironment);
+        const returnAddress =
+            this.context.currentLine !== undefined && this.context.currentColumn !== undefined
+                ? { line: this.context.currentLine, column: this.context.currentColumn }
+                : undefined;
+        routineContext.callStack = [...this.context.callStack];
+        routineContext.pushCallFrame({
+            routineName,
+            environment: this.environment,
+            returnAddress,
+        });
+        this.context = routineContext;
+        this.environment = routineEnvironment;
+
+        const routineInfo = this.globalRoutines.get(routineName);
+        const bodyStatements = extractRoutineBody(routineInfo?.node);
+
+        return seqMany(
+            bodyStatements.map((stmt) => () => this.executeStatementBounce(stmt)),
+            () => {
+                const returnValue = this.context.getReturnValue();
+                this.context = previousContext;
+                this.environment = previousEnvironment;
+                routineEnvironment.disposeScope();
+                return done(returnValue);
+            },
+        );
+    }
+
+    private tryObjectMethodCallSync(node: CallExpressionNode): {
+        handled: boolean;
+        value?: unknown;
+    } {
+        if (!node.namespace) return { handled: false };
+
+        if (!this.environment.has(node.namespace)) {
+            return { handled: false };
+        }
+
+        const objValue = this.environment.get(node.namespace);
+        if (typeof objValue !== "number") {
+            return { handled: false };
+        }
+
+        let objType: TypeInfo;
+        try {
+            objType = this.heap.readUnsafe(objValue).type;
+        } catch {
+            return { handled: false };
+        }
+
+        if (typeof objType !== "object" || objType === null || !("name" in objType)) {
+            return { handled: false };
+        }
+
+        const className = "name" in objType ? objType.name : undefined;
+        if (!className) return { handled: false };
+        const fullClassDef = this.resolveFullClassDefinition(className);
+        if (!fullClassDef) return { handled: false };
+
+        const method = fullClassDef.methods[node.name];
+        if (!method) {
+            throw new RuntimeError(
+                `Method '${node.name}' not found on class '${className}'`,
+                node.line,
+                node.column,
+            );
+        }
+
+        const selfAddress = objValue;
+        const routineEnvironment = this.environment.createChild();
+        routineEnvironment.define("SELF", PseudocodeType.INTEGER, selfAddress, true);
+
+        this.bindObjectFieldsToEnvironment(selfAddress, fullClassDef, routineEnvironment);
+
+        for (let i = 0; i < method.parameters.length; i++) {
+            const param = method.parameters[i];
+            const argNode = node.arguments[i];
+            const arg = argNode ? this.evaluate(argNode) : undefined;
+            routineEnvironment.define(param.name, param.type, arg, false);
+        }
+
+        const previousContext = this.context;
+        const previousEnvironment = this.environment;
+        this.context = new ExecutionContext(routineEnvironment);
+        this.environment = routineEnvironment;
+
+        let result: unknown = undefined;
+
+        try {
+            const methodBody = this.findMethodBody(className, node.name);
+            if (methodBody) {
+                for (const statement of methodBody.body) {
+                    this.executeStatementSync(statement);
+                    if (this.context.shouldReturnFromRoutine()) {
+                        result = this.context.getReturnValue();
+                        break;
+                    }
+                }
+            }
+        } finally {
+            this.context = previousContext;
+            this.environment = previousEnvironment;
+            routineEnvironment.disposeScope();
+        }
+
+        return { handled: true, value: result };
+    }
+
+    private evaluateTypeofSync(node: CallExpressionNode): string {
+        const argNode = node.arguments[0];
+
+        if (isIdentifierNode(argNode)) {
+            try {
+                const declaredType = this.environment.getType(argNode.name);
+                return TypeValidator.typeInfoToName(declaredType);
+            } catch {
+                const value = this.evaluate(argNode);
+                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+            }
+        }
+
+        if (isArrayAccessNode(argNode)) {
+            try {
+                const rootAtom = this.resolveArrayRootAtom(argNode);
+                const elementType = this.resolveArrayElementType(
+                    rootAtom.type,
+                    this.countArrayAccessDepth(argNode),
+                );
+                return TypeValidator.typeInfoToName(elementType);
+            } catch {
+                const value = this.evaluate(argNode);
+                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+            }
+        }
+
+        const value = this.evaluate(argNode);
+        return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
+    }
+
+    private executeStatementSync(statement: StatementNode): unknown {
+        this.onStep?.();
+        return this.evaluate(statement);
     }
 
     private buildDebugSnapshot(
@@ -601,8 +1664,8 @@ export class Evaluator {
         };
     }
 
-    private async evaluateDeclareStatement(node: DeclareStatementNode): Promise<void> {
-        const initialValue = node.initialValue ? await this.evaluate(node.initialValue) : undefined;
+    private evaluateDeclareStatement(node: DeclareStatementNode): void {
+        const initialValue = node.initialValue ? this.evaluate(node.initialValue) : undefined;
 
         let resolvedType: TypeInfo;
         if (
@@ -622,7 +1685,8 @@ export class Evaluator {
             resolvedType = this.resolveType(node.dataType, node.line, node.column);
         }
 
-        const finalValue = initialValue ?? this.getDefaultValue(resolvedType, node.line, node.column);
+        const finalValue =
+            initialValue ?? this.getDefaultValue(resolvedType, node.line, node.column);
 
         this.environment.define(node.name, resolvedType, finalValue, node.isConstant);
     }
@@ -641,47 +1705,6 @@ export class Evaluator {
             return PseudocodeType.DATE;
         }
         return PseudocodeType.STRING;
-    }
-
-    private async evaluateTypeof(node: CallExpressionNode): Promise<string> {
-        const argNode = node.arguments[0];
-
-        if (isIdentifierNode(argNode)) {
-            try {
-                const declaredType = this.environment.getType(argNode.name);
-                return TypeValidator.typeInfoToName(declaredType);
-            } catch {
-                const value = await this.evaluate(argNode);
-                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
-            }
-        }
-
-        if (isArrayAccessNode(argNode)) {
-            try {
-                const rootAtom = this.resolveArrayRootAtom(argNode);
-                const elementType = this.resolveArrayElementType(
-                    rootAtom.type,
-                    this.countArrayAccessDepth(argNode),
-                );
-                return TypeValidator.typeInfoToName(elementType);
-            } catch {
-                const value = await this.evaluate(argNode);
-                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
-            }
-        }
-
-        if (isMemberAccessNode(argNode)) {
-            try {
-                const memberType = this.resolveMemberAccessType(argNode);
-                return TypeValidator.typeInfoToName(memberType);
-            } catch {
-                const value = await this.evaluate(argNode);
-                return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
-            }
-        }
-
-        const value = await this.evaluate(argNode);
-        return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
     }
 
     private countArrayAccessDepth(node: ArrayAccessNode): number {
@@ -715,16 +1738,16 @@ export class Evaluator {
         return value;
     }
 
-    private async evaluateVariableDeclaration(node: VariableDeclarationNode): Promise<void> {
+    private evaluateVariableDeclaration(node: VariableDeclarationNode): void {
         const resolvedType = this.resolveType(node.dataType, node.line, node.column);
         const initialValue = node.initialValue
-            ? await this.evaluate(node.initialValue)
+            ? this.evaluate(node.initialValue)
             : this.getDefaultValue(resolvedType, node.line, node.column);
 
         this.environment.define(node.name, resolvedType, initialValue, node.isConstant);
     }
 
-    private async evaluateAssignment(node: AssignmentNode): Promise<void> {
+    private evaluateAssignment(node: AssignmentNode): void {
         let value: unknown;
 
         if (isIdentifierNode(node.target)) {
@@ -738,16 +1761,16 @@ export class Evaluator {
             ) {
                 value = node.value.name;
             } else {
-                value = await this.evaluate(node.value);
+                value = this.evaluate(node.value);
             }
         } else {
-            value = await this.evaluate(node.value);
+            value = this.evaluate(node.value);
         }
 
         if (isIdentifierNode(node.target)) {
             this.environment.assign(node.target.name, value);
         } else if (isArrayAccessNode(node.target)) {
-            const address = await this.resolveTargetAddress(node.target);
+            const address = this.resolveTargetAddress(node.target);
 
             let elementType: TypeInfo = PseudocodeType.INTEGER;
             if (isIdentifierNode(node.target.array)) {
@@ -786,10 +1809,10 @@ export class Evaluator {
 
             VariableAtomFactory.validateValue(fieldType, value);
 
-            const address = await this.resolveTargetAddress(node.target);
+            const address = this.resolveTargetAddress(node.target);
             this.heap.writeUnsafe(address, value, fieldType);
         } else if (isPointerDereferenceNode(node.target)) {
-            const ptrValue = await this.evaluate(node.target.pointer);
+            const ptrValue = this.evaluate(node.target.pointer);
             if (ptrValue === null || ptrValue === undefined) {
                 throw new RuntimeError("Null pointer dereference", node.line, node.column);
             }
@@ -822,12 +1845,12 @@ export class Evaluator {
         }
     }
 
-    private async evaluateIf(node: IfNode): Promise<void> {
-        const condition = await this.evaluate(node.condition);
+    private evaluateIf(node: IfNode): void {
+        const condition = this.evaluate(node.condition);
 
         if (this.isTruthy(condition)) {
             for (const statement of node.thenBranch) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -835,7 +1858,7 @@ export class Evaluator {
             }
         } else if (node.elseBranch) {
             for (const statement of node.elseBranch) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -844,9 +1867,9 @@ export class Evaluator {
         }
     }
 
-    private async evaluateCase(node: CaseNode): Promise<void> {
+    private evaluateCase(node: CaseNode): void {
         const expressionValue = ensureStringOrNumber(
-            await this.evaluate(node.expression),
+            this.evaluate(node.expression),
             node.line,
             node.column,
         );
@@ -855,12 +1878,12 @@ export class Evaluator {
         for (const caseItem of node.cases) {
             if (caseItem.values.length === 2) {
                 const value1 = ensureStringOrNumber(
-                    await this.evaluate(caseItem.values[0]),
+                    this.evaluate(caseItem.values[0]),
                     node.line,
                     node.column,
                 );
                 const value2 = ensureStringOrNumber(
-                    await this.evaluate(caseItem.values[1]),
+                    this.evaluate(caseItem.values[1]),
                     node.line,
                     node.column,
                 );
@@ -869,7 +1892,7 @@ export class Evaluator {
                     executed = true;
 
                     for (const statement of caseItem.body) {
-                        await this.executeStatement(statement);
+                        this.executeStatementSync(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             return;
@@ -879,13 +1902,13 @@ export class Evaluator {
                     break;
                 }
             } else if (caseItem.values.length === 1) {
-                const value = await this.evaluate(caseItem.values[0]);
+                const value = this.evaluate(caseItem.values[0]);
 
                 if (this.isEqual(expressionValue, value)) {
                     executed = true;
 
                     for (const statement of caseItem.body) {
-                        await this.executeStatement(statement);
+                        this.executeStatementSync(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             return;
@@ -905,7 +1928,7 @@ export class Evaluator {
 
         if (!executed && node.otherwise) {
             for (const statement of node.otherwise) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -914,12 +1937,10 @@ export class Evaluator {
         }
     }
 
-    private async evaluateFor(node: ForNode): Promise<void> {
-        const start = ensureNumber(await this.evaluate(node.start), node.line, node.column);
-        const end = ensureNumber(await this.evaluate(node.end), node.line, node.column);
-        const step = node.step
-            ? ensureNumber(await this.evaluate(node.step), node.line, node.column)
-            : 1;
+    private evaluateFor(node: ForNode): void {
+        const start = ensureNumber(this.evaluate(node.start), node.line, node.column);
+        const end = ensureNumber(this.evaluate(node.end), node.line, node.column);
+        const step = node.step ? ensureNumber(this.evaluate(node.step), node.line, node.column) : 1;
 
         if (!this.environment.has(node.variable))
             this.environment.define(node.variable, PseudocodeType.INTEGER, start);
@@ -934,7 +1955,7 @@ export class Evaluator {
             this.environment.assign(node.variable, currentValue);
 
             for (const statement of node.body) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -949,16 +1970,16 @@ export class Evaluator {
         }
     }
 
-    private async evaluateWhile(node: WhileNode): Promise<void> {
+    private evaluateWhile(node: WhileNode): void {
         while (true) {
-            const condition = await this.evaluate(node.condition);
+            const condition = this.evaluate(node.condition);
 
             if (!this.isTruthy(condition)) {
                 break;
             }
 
             for (const statement of node.body) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
@@ -967,16 +1988,16 @@ export class Evaluator {
         }
     }
 
-    private async evaluateRepeat(node: RepeatNode): Promise<void> {
+    private evaluateRepeat(node: RepeatNode): void {
         do {
             for (const statement of node.body) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
 
                 if (this.context.shouldReturnFromRoutine()) {
                     return;
                 }
             }
-        } while (!this.isTruthy(await this.evaluate(node.condition)));
+        } while (!this.isTruthy(this.evaluate(node.condition)));
     }
 
     private evaluateProcedureDeclaration(node: ProcedureDeclarationNode): void {
@@ -1018,120 +2039,19 @@ export class Evaluator {
         this.globalRoutines.set(node.name, routineInfo);
     }
 
-    private async evaluateCallStatement(node: CallStatementNode): Promise<void> {
-        if (!node.namespace && this.environment.hasRoutine(node.name)) {
-            const signature = this.environment.getRoutine(node.name);
-            if (signature.returnType) {
-                throw new RuntimeError(
-                    `Cannot CALL function '${node.name}', use it in an expression instead`,
-                    node.line,
-                    node.column,
-                );
-            }
-        }
-
-        await this.evaluateCallExpression({
-            type: "CallExpression",
-            name: node.name,
-            namespace: node.namespace,
-            arguments: node.arguments,
-            line: node.line,
-            column: node.column,
-        });
-    }
-
-    private async evaluateInput(node: InputNode): Promise<void> {
-        let promptText = "";
-
-        if (node.prompt) {
-            const promptValue = await this.evaluate(node.prompt);
-            promptText = String(promptValue);
-        }
-
-        const input = await this.io.input(promptText);
-        let targetName = "";
-        if (node.target.type === "Identifier") {
-            targetName = node.target.name;
-        } else {
-            throw new RuntimeError("Invalid input target", node.line, node.column);
-        }
-
-        const targetType = this.environment.getType(targetName);
-        const value = this.convertInput(
-            input,
-            ensurePseudocodeType(targetType, node.line, node.column),
-        );
-
-        if (node.target.type === "Identifier") {
-            this.environment.assign(targetName, value);
-        }
-    }
-
-    private async evaluateOutput(node: OutputNode): Promise<void> {
-        const outputValues: string[] = [];
-
-        for (const expression of node.expressions) {
-            const value = await this.evaluate(expression);
-            outputValues.push(String(value));
-        }
-
-        this.io.output(outputValues.join("") + "\n");
-    }
-
-    private async evaluateReturn(node: ReturnNode): Promise<void> {
-        let value: unknown;
-
-        if (node.value) {
-            value = await this.evaluate(node.value);
-        }
-
-        this.context.setReturnValue(value);
-        this.context.shouldReturn = true;
-    }
-
-    private async evaluateDebugger(node: DebuggerNode): Promise<void> {
-        if (this.strictMode) {
-            throw new RuntimeError(
-                "DEBUGGER is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
-                node.line,
-                node.column,
-            );
-        }
-
-        if (!this.debuggerController) {
-            return;
-        }
-
-        const snapshot = this.buildDebugSnapshot("debugger-statement", node.line, node.column);
-
-        await this.debuggerController.pause(snapshot);
-    }
-
-    private async assignValueToTarget(
+    private assignToTarget(
         target: ExpressionNode,
         value: unknown,
         line?: number,
         column?: number,
-    ): Promise<void> {
-        const result = await this.assignToTargetR(target, value, line, column);
-        if (result.isErr()) {
-            throw result.error;
-        }
-    }
-
-    private async assignToTarget(
-        target: ExpressionNode,
-        value: unknown,
-        line?: number,
-        column?: number,
-    ): Promise<void> {
+    ): void {
         if (isIdentifierNode(target)) {
             this.environment.assign(target.name, value);
             return;
         }
 
         if (isArrayAccessNode(target)) {
-            const address = await this.resolveTargetAddress(target);
+            const address = this.resolveTargetAddress(target);
 
             let elementType: TypeInfo = PseudocodeType.INTEGER;
             if (isIdentifierNode(target.array)) {
@@ -1141,10 +2061,7 @@ export class Evaluator {
                     typeInfo !== null &&
                     "elementType" in typeInfo
                 ) {
-                    elementType = this.resolveArrayElementType(
-                        typeInfo,
-                        target.indices.length,
-                    );
+                    elementType = this.resolveArrayElementType(typeInfo, target.indices.length);
                 }
             }
 
@@ -1162,11 +2079,12 @@ export class Evaluator {
         value: unknown,
         line?: number,
         column?: number,
-    ): RuntimeAsyncResult<void> {
-        return ResultAsync.fromPromise(
-            this.assignToTarget(target, value, line, column),
-            (error: unknown) => toRuntimeError(error, line, column),
-        );
+    ): void {
+        try {
+            this.assignToTarget(target, value, line, column);
+        } catch (error) {
+            throw toRuntimeError(error, line, column);
+        }
     }
 
     private evaluateTypeDeclaration(node: TypeDeclarationNode): void {
@@ -1219,7 +2137,7 @@ export class Evaluator {
         this.userDefinedTypes.set(node.name.toUpperCase(), userType);
     }
 
-    private async evaluateSetDeclaration(node: SetDeclarationNode): Promise<void> {
+    private evaluateSetDeclaration(node: SetDeclarationNode): void {
         const setType = this.setTypes.get(node.setTypeName.toUpperCase());
         if (!setType) {
             throw new RuntimeError(
@@ -1231,7 +2149,7 @@ export class Evaluator {
 
         const values = new Set<unknown>();
         for (const expr of node.values) {
-            const value = await this.evaluate(expr);
+            const value = this.evaluate(expr);
             VariableAtomFactory.validateValue(setType.elementType, value);
             values.add(value);
         }
@@ -1291,16 +2209,18 @@ export class Evaluator {
     }
 
     private buildDefaultObjectValue(classDef: ClassTypeInfo): Record<string, unknown> {
+        const fullClassDef = this.resolveFullClassDefinition(classDef.name);
+        const fieldsToUse = fullClassDef?.fields ?? classDef.fields;
         const result: Record<string, unknown> = {};
-        for (const [fieldName, fieldType] of Object.entries(classDef.fields)) {
+        for (const [fieldName, fieldType] of Object.entries(fieldsToUse)) {
             result[fieldName] = this.heap.getDefaultValue(fieldType);
         }
         return result;
     }
 
-    private async evaluateBinaryExpression(node: BinaryExpressionNode): Promise<unknown> {
-        const left = await this.evaluate(node.left);
-        const right = await this.evaluate(node.right);
+    private evaluateBinaryExpression(node: BinaryExpressionNode): unknown {
+        const left = this.evaluate(node.left);
+        const right = this.evaluate(node.right);
 
         switch (node.operator) {
             case "+":
@@ -1361,7 +2281,7 @@ export class Evaluator {
                 return this.isTruthy(left) || this.isTruthy(right);
 
             case "IN":
-                if (!(right instanceof Set)) {
+                if (typeof right !== "object" || right === null || !(right instanceof Set)) {
                     throw new RuntimeError(
                         "Right operand of IN must be a SET",
                         node.line,
@@ -1379,8 +2299,8 @@ export class Evaluator {
         }
     }
 
-    private async evaluateUnaryExpression(node: UnaryExpressionNode): Promise<unknown> {
-        const operand = await this.evaluate(node.operand);
+    private evaluateUnaryExpression(node: UnaryExpressionNode): unknown {
+        const operand = this.evaluate(node.operand);
 
         switch (node.operator) {
             case "-":
@@ -1402,8 +2322,8 @@ export class Evaluator {
         return serializeRecordHelper(value, this.heap);
     }
 
-    private async deserializeRecordImpl(data: string, target: ExpressionNode): Promise<void> {
-        const currentValue = await this.evaluate(target);
+    private deserializeRecordImpl(data: string, target: ExpressionNode): void {
+        const currentValue = this.evaluate(target);
         if (!isRecord(currentValue)) {
             throw new RuntimeError(
                 "GETRECORD target must be a user-defined type variable",
@@ -1415,11 +2335,8 @@ export class Evaluator {
         reconstructRecordHelper(parsed, currentValue, this.heap);
     }
 
-    private deserializeRecord(data: string, target: ExpressionNode): RuntimeAsyncResult<void> {
-        return ResultAsync.fromPromise(
-            this.deserializeRecordImpl(data, target),
-            (error: unknown) => toRuntimeError(error, target.line, target.column),
-        );
+    private deserializeRecord(data: string, target: ExpressionNode): void {
+        this.deserializeRecordImpl(data, target);
     }
 
     private evaluateIdentifier(node: IdentifierNode) {
@@ -1440,95 +2357,16 @@ export class Evaluator {
         return node.value;
     }
 
-    private async evaluateArrayAccess(node: ArrayAccessNode): Promise<unknown> {
-        const address = await this.resolveTargetAddress(node);
+    private evaluateArrayAccess(node: ArrayAccessNode): unknown {
+        const address = this.resolveTargetAddress(node);
         return this.heap.readUnsafe(address).value;
     }
 
-    private async tryObjectMethodCall(
-        node: CallExpressionNode,
-    ): Promise<{ handled: boolean; value?: unknown }> {
-        if (!node.namespace) return { handled: false };
-
-        if (!this.environment.has(node.namespace)) {
-            return { handled: false };
-        }
-
-        const objValue = this.environment.get(node.namespace);
-        if (typeof objValue !== "number") {
-            return { handled: false };
-        }
-
-        let objType: TypeInfo;
-        try {
-            objType = this.heap.readUnsafe(objValue).type;
-        } catch {
-            return { handled: false };
-        }
-
-        if (typeof objType !== "object" || objType === null || !("name" in objType)) {
-            return { handled: false };
-        }
-
-        const className = "name" in objType ? objType.name : undefined;
-        if (!className) return { handled: false };
-        const fullClassDef = this.resolveFullClassDefinition(className);
-        if (!fullClassDef) return { handled: false };
-
-        const method = fullClassDef.methods[node.name];
-        if (!method) {
-            throw new RuntimeError(
-                `Method '${node.name}' not found on class '${className}'`,
-                node.line,
-                node.column,
-            );
-        }
-
-        const selfAddress = objValue;
-        const routineEnvironment = this.environment.createChild();
-        routineEnvironment.define("SELF", PseudocodeType.INTEGER, selfAddress, true);
-
-        this.bindObjectFieldsToEnvironment(selfAddress, fullClassDef, routineEnvironment);
-
-        for (let i = 0; i < method.parameters.length; i++) {
-            const param = method.parameters[i];
-            const argNode = node.arguments[i];
-            const arg = await this.evaluate(argNode);
-            routineEnvironment.define(param.name, param.type, arg, false);
-        }
-
-        const previousContext = this.context;
-        const previousEnvironment = this.environment;
-        this.context = new ExecutionContext(routineEnvironment);
-        this.environment = routineEnvironment;
-
-        let result: unknown = undefined;
-
-        try {
-            const methodBody = this.findMethodBody(className, node.name);
-            if (methodBody) {
-                for (const statement of methodBody.body) {
-                    await this.executeStatement(statement);
-                    if (this.context.shouldReturnFromRoutine()) {
-                        result = this.context.getReturnValue();
-                        break;
-                    }
-                }
-            }
-        } finally {
-            this.context = previousContext;
-            this.environment = previousEnvironment;
-            routineEnvironment.disposeScope();
-        }
-
-        return { handled: true, value: result };
-    }
-
-    private async evaluateCallExpression(node: CallExpressionNode): Promise<unknown> {
+    private evaluateCallExpression(node: CallExpressionNode): unknown {
         const routineName = node.name;
 
         if (node.namespace) {
-            const methodResult = await this.tryObjectMethodCall(node);
+            const methodResult = this.tryObjectMethodCallSync(node);
             if (methodResult.handled) {
                 return methodResult.value;
             }
@@ -1549,7 +2387,7 @@ export class Evaluator {
                 );
             }
         } else if (this.environment.has("SELF")) {
-            const selfMethodResult = await this.tryObjectMethodCall({
+            const selfMethodResult = this.tryObjectMethodCallSync({
                 ...node,
                 namespace: "SELF",
             });
@@ -1559,7 +2397,18 @@ export class Evaluator {
         }
 
         if (routineName === "EOF") {
-            return this.fileOperations.evaluateEOFCall(node.arguments, node.line, node.column);
+            if (node.arguments.length !== 1) {
+                throw new RuntimeError("EOF expects exactly one argument", node.line, node.column);
+            }
+            const fileId = this.evaluate(node.arguments[0]);
+            if (typeof fileId !== "string") {
+                throw new RuntimeError(
+                    "EOF expects a string file identifier",
+                    node.line,
+                    node.column,
+                );
+            }
+            return this.fileManager.isEOF(fileId);
         }
 
         if (this.strictMode && EXTENDED_BUILTIN_NAMES.has(routineName)) {
@@ -1571,16 +2420,14 @@ export class Evaluator {
         }
 
         if (routineName === "TYPEOF") {
-            return this.evaluateTypeof(node);
+            return this.evaluateTypeofSync(node);
         }
 
         if (this.globalRoutines.has(routineName)) {
             const routineInfo = this.globalRoutines.get(routineName)!;
 
             if (routineInfo.isBuiltIn && routineInfo.implementation) {
-                const args = await Promise.all(
-                    node.arguments.map(async (arg) => this.evaluate(arg)),
-                );
+                const args = node.arguments.map((arg) => this.evaluate(arg));
                 return routineInfo.implementation(...args);
             }
         }
@@ -1606,7 +2453,7 @@ export class Evaluator {
                     const callerAtom = this.environment.getAtom(argNode.name);
                     routineEnvironment.defineByRef(param.name, param.type, callerAtom.getAddress());
                 } else if (isArrayAccessNode(argNode) || isMemberAccessNode(argNode)) {
-                    const address = await this.resolveTargetAddress(argNode);
+                    const address = this.resolveTargetAddress(argNode);
                     routineEnvironment.defineByRef(param.name, param.type, address);
                 } else {
                     throw new RuntimeError(
@@ -1616,7 +2463,7 @@ export class Evaluator {
                     );
                 }
             } else {
-                const arg = await this.evaluate(argNode);
+                const arg = this.evaluate(argNode);
                 const fromHeap =
                     typeof param.type === "object" &&
                     param.type !== null &&
@@ -1652,7 +2499,7 @@ export class Evaluator {
                 if (isProcedureDeclarationNode(routineInfo.node)) {
                     const procedureNode = routineInfo.node;
                     for (const statement of procedureNode.body) {
-                        await this.executeStatement(statement);
+                        this.executeStatementSync(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             break;
@@ -1661,7 +2508,7 @@ export class Evaluator {
                 } else if (isFunctionDeclarationNode(routineInfo.node)) {
                     const functionNode = routineInfo.node;
                     for (const statement of functionNode.body) {
-                        await this.executeStatement(statement);
+                        this.executeStatementSync(statement);
 
                         if (this.context.shouldReturnFromRoutine()) {
                             break;
@@ -1681,8 +2528,8 @@ export class Evaluator {
         return result;
     }
 
-    private async evaluateMemberAccess(node: MemberAccessNode): Promise<unknown> {
-        const parentAddress = await this.resolveTargetAddress(node.object);
+    private evaluateMemberAccess(node: MemberAccessNode): unknown {
+        const parentAddress = this.resolveTargetAddress(node.object);
         this.checkFieldVisibility(parentAddress, node.field, node.line, node.column);
         const fieldAddr = this.heap.readFieldAddressUnsafe(parentAddress, node.field);
         return this.heap.readUnsafe(fieldAddr).value;
@@ -1849,17 +2696,10 @@ export class Evaluator {
             return address;
         }
 
-        const objectValue = this.buildDefaultObjectValue(classDef);
-        const objectTypeInfo: UserDefinedTypeInfo = {
-            name: classDef.name,
-            fields: classDef.fields,
-        };
-        const address = this.heap.allocate(objectValue, objectTypeInfo);
-
-        return address;
+        return this.createAndConstructObject(node.className, node.arguments);
     }
 
-    private async evaluateNewExpressionAsync(node: NewExpressionNode): Promise<unknown> {
+    private evaluateNewExpressionAsync(node: NewExpressionNode): unknown {
         const classDef = this.resolveFullClassDefinition(node.className);
 
         if (!classDef) {
@@ -1869,10 +2709,7 @@ export class Evaluator {
         return this.createAndConstructObject(node.className, node.arguments);
     }
 
-    private async createAndConstructObject(
-        className: string,
-        args: ExpressionNode[],
-    ): Promise<number> {
+    private createAndConstructObject(className: string, args: ExpressionNode[]): number {
         const classDef = this.resolveFullClassDefinition(className);
         if (!classDef) {
             throw new RuntimeError(`Unknown class '${className}'`);
@@ -1885,16 +2722,16 @@ export class Evaluator {
         };
         const address = this.heap.allocate(objectValue, objectTypeInfo);
 
-        await this.invokeConstructor(className, address, args);
+        this.invokeConstructor(className, address, args);
 
         return address;
     }
 
-    private async invokeConstructor(
+    private invokeConstructor(
         className: string,
         objectAddress: number,
         args: ExpressionNode[],
-    ): Promise<void> {
+    ): void {
         const methodBodies = this.classMethodBodies.get(className);
         if (!methodBodies) return;
 
@@ -1913,7 +2750,7 @@ export class Evaluator {
         for (let i = 0; i < constructor.parameters.length; i++) {
             const param = constructor.parameters[i];
             const argNode = args[i];
-            const arg = await this.evaluate(argNode);
+            const arg = this.evaluate(argNode);
             routineEnvironment.define(param.name, param.dataType, arg, false);
         }
 
@@ -1924,7 +2761,7 @@ export class Evaluator {
 
         try {
             for (const statement of constructor.body) {
-                await this.executeStatement(statement);
+                this.executeStatementSync(statement);
                 if (this.context.shouldReturnFromRoutine()) {
                     break;
                 }
@@ -1956,104 +2793,21 @@ export class Evaluator {
         }
     }
 
-    private async evaluateSuperCall(node: SuperCallNode): Promise<void> {
-        const selfAddress = this.environment.get("SELF");
-        if (typeof selfAddress !== "number") {
-            throw new RuntimeError(
-                "SUPER can only be used inside a method",
-                node.line,
-                node.column,
-            );
-        }
-
-        const selfHeapObj = this.heap.readUnsafe(selfAddress);
-        const selfType = selfHeapObj.type;
-        if (typeof selfType !== "object" || !("name" in selfType)) {
-            throw new RuntimeError(
-                "SELF does not refer to a class instance",
-                node.line,
-                node.column,
-            );
-        }
-
-        const className = selfType.name;
-        const classDef = this.classDefinitions.get(className);
-        if (!classDef || !classDef.inherits) {
-            throw new RuntimeError(
-                `Class '${className}' does not inherit from any class`,
-                node.line,
-                node.column,
-            );
-        }
-
-        const parentClassName = classDef.inherits;
-        const parentMethodBodies = this.classMethodBodies.get(parentClassName);
-        if (!parentMethodBodies) {
-            throw new RuntimeError(
-                `Parent class '${parentClassName}' not found`,
-                node.line,
-                node.column,
-            );
-        }
-
-        const method = parentMethodBodies.get(node.methodName);
-        if (!method) {
-            throw new RuntimeError(
-                `Method '${node.methodName}' not found in parent class '${parentClassName}'`,
-                node.line,
-                node.column,
-            );
-        }
-
-        const routineEnvironment = this.environment.createChild();
-        routineEnvironment.define("SELF", PseudocodeType.INTEGER, selfAddress, true);
-
-        const fullParentClassDef = this.resolveFullClassDefinition(parentClassName);
-        if (fullParentClassDef) {
-            this.bindObjectFieldsToEnvironment(selfAddress, fullParentClassDef, routineEnvironment);
-        }
-
-        for (let i = 0; i < method.parameters.length; i++) {
-            const param = method.parameters[i];
-            const argNode = node.arguments[i];
-            const arg = await this.evaluate(argNode);
-            routineEnvironment.define(param.name, param.dataType, arg, false);
-        }
-
-        const previousContext = this.context;
-        const previousEnvironment = this.environment;
-        this.context = new ExecutionContext(routineEnvironment);
-        this.environment = routineEnvironment;
-
-        try {
-            for (const statement of method.body) {
-                await this.executeStatement(statement);
-                if (this.context.shouldReturnFromRoutine()) {
-                    break;
-                }
-            }
-        } finally {
-            this.context = previousContext;
-            this.environment = previousEnvironment;
-            routineEnvironment.disposeScope();
-        }
-    }
-
-    private async evaluateTypeCast(node: TypeCastNode): Promise<unknown> {
-        const value = await this.evaluate(node.expression);
+    private evaluateTypeCast(node: TypeCastNode): unknown {
+        const value = this.evaluate(node.expression);
         return value;
     }
 
-    private async evaluateSetLiteral(node: SetLiteralNode): Promise<Set<unknown>> {
+    private evaluateSetLiteral(node: SetLiteralNode): Set<unknown> {
         const values = new Set<unknown>();
         for (const element of node.elements) {
-            values.add(await this.evaluate(element));
+            values.add(this.evaluate(element));
         }
         return values;
     }
 
-    private async evaluatePointerDereference(node: PointerDereferenceNode): Promise<unknown> {
-        const ptrValue = await this.evaluate(node.pointer);
+    private evaluatePointerDereference(node: PointerDereferenceNode): unknown {
+        const ptrValue = this.evaluate(node.pointer);
 
         if (ptrValue === null || ptrValue === undefined || ptrValue === NULL_POINTER) {
             throw new RuntimeError("Null pointer dereference", node.line, node.column);
@@ -2068,11 +2822,11 @@ export class Evaluator {
         return heapResult.value;
     }
 
-    private async evaluateAddressOf(node: AddressOfNode): Promise<number> {
+    private evaluateAddressOf(node: AddressOfNode): number {
         return this.resolveTargetAddress(node.target);
     }
 
-    private async resolveTargetAddress(target: ExpressionNode): Promise<number> {
+    private resolveTargetAddress(target: ExpressionNode): number {
         if (isIdentifierNode(target)) {
             const atom = this.environment.getAtom(target.name);
             const varAddress = atom.getAddress();
@@ -2099,7 +2853,7 @@ export class Evaluator {
         if (isArrayAccessNode(target)) {
             const arrayAtom = this.resolveArrayRootAtom(target);
             const indices = ensureIndices(
-                await Promise.all(target.indices.map(async (index) => this.evaluate(index))),
+                target.indices.map((index) => this.evaluate(index)),
                 target.line,
                 target.column,
             );
@@ -2119,13 +2873,13 @@ export class Evaluator {
         }
 
         if (isMemberAccessNode(target)) {
-            const parentAddress = await this.resolveTargetAddress(target.object);
+            const parentAddress = this.resolveTargetAddress(target.object);
             this.checkFieldVisibility(parentAddress, target.field, target.line, target.column);
             return this.heap.readFieldAddressUnsafe(parentAddress, target.field);
         }
 
         if (isPointerDereferenceNode(target)) {
-            const ptrValue = await this.evaluate(target.pointer);
+            const ptrValue = this.evaluate(target.pointer);
             if (typeof ptrValue !== "number") {
                 throw new RuntimeError(
                     "Cannot dereference non-pointer value",
@@ -2186,8 +2940,8 @@ export class Evaluator {
         throw new RuntimeError("Invalid array access target", node.line, node.column);
     }
 
-    private async evaluateDisposeStatement(node: DisposeStatementNode): Promise<void> {
-        const addr = await this.evaluate(node.pointer);
+    private evaluateDisposeStatement(node: DisposeStatementNode): void {
+        const addr = this.evaluate(node.pointer);
 
         if (addr === null || addr === undefined) {
             return;
@@ -2284,7 +3038,9 @@ export class Evaluator {
 
     private createEmptyArray(arrayType: ArrayTypeInfo, line?: number, column?: number): unknown[] {
         if (arrayType.bounds.length === 1) {
-            const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0], line, column));
+            const bound = this.numericArrayBound(
+                this.resolveArrayBound(arrayType.bounds[0], line, column),
+            );
             const size = bound.upper - bound.lower + 1;
             return Array.from({ length: size }, () =>
                 this.getDefaultValueForFieldType(arrayType.elementType),
@@ -2292,7 +3048,9 @@ export class Evaluator {
         }
 
         const result: unknown[] = [];
-        const bound = this.numericArrayBound(this.resolveArrayBound(arrayType.bounds[0], line, column));
+        const bound = this.numericArrayBound(
+            this.resolveArrayBound(arrayType.bounds[0], line, column),
+        );
         const size = bound.upper - bound.lower + 1;
 
         const subArrayType: ArrayTypeInfo = {

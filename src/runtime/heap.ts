@@ -437,11 +437,14 @@ export class Heap {
         }
 
         if (typeof type === "object" && "elementType" in type) {
-            const size = type.bounds.reduce((acc: number, b: { lower: number | string; upper: number | string }) => {
-                const lower = typeof b.lower === "number" ? b.lower : 1;
-                const upper = typeof b.upper === "number" ? b.upper : 1;
-                return acc * (upper - lower + 1);
-            }, 1);
+            const size = type.bounds.reduce(
+                (acc: number, b: { lower: number | string; upper: number | string }) => {
+                    const lower = typeof b.lower === "number" ? b.lower : 1;
+                    const upper = typeof b.upper === "number" ? b.upper : 1;
+                    return acc * (upper - lower + 1);
+                },
+                1,
+            );
             if (type.bounds.length > 1) {
                 const subArrayType: ArrayTypeInfo = {
                     elementType: type.elementType,

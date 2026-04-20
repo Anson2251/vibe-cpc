@@ -250,14 +250,22 @@ export function ensureIndices(values: unknown[], line?: number, column?: number)
     });
 }
 
-export function ensureStringOrNumber(value: unknown, line?: number, column?: number): string | number {
+export function ensureStringOrNumber(
+    value: unknown,
+    line?: number,
+    column?: number,
+): string | number {
     if (typeof value !== "string" && typeof value !== "number") {
         throw new RuntimeError("Expected STRING or NUMBER value", line, column);
     }
     return value;
 }
 
-export function ensurePseudocodeType(type: TypeInfo, line?: number, column?: number): PseudocodeType {
+export function ensurePseudocodeType(
+    type: TypeInfo,
+    line?: number,
+    column?: number,
+): PseudocodeType {
     if (typeof type !== "string") {
         throw new RuntimeError("Expected scalar pseudocode type", line, column);
     }

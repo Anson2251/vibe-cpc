@@ -54,11 +54,7 @@ export function computeArrayAddress(
     return currentAddress;
 }
 
-export function resolveIndices(
-    indices: unknown[],
-    line?: number,
-    column?: number,
-): number[] {
+export function resolveIndices(indices: unknown[], line?: number, column?: number): number[] {
     return indices.map((value) => {
         const num = ensureNumber(value, line, column);
         if (!Number.isInteger(num)) {

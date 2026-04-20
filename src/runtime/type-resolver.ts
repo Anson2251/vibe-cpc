@@ -57,7 +57,10 @@ function computeFullClassDefinition(
 export function findMethodBody(
     className: string,
     methodName: string,
-    classMethodBodies: Map<string, Map<string, { name: string; className: string; parameters: unknown[]; body: unknown[] }>>,
+    classMethodBodies: Map<
+        string,
+        Map<string, { name: string; className: string; parameters: unknown[]; body: unknown[] }>
+    >,
     classDefinitions: Map<string, ClassTypeInfo>,
 ): { name: string; className: string; parameters: unknown[]; body: unknown[] } | undefined {
     const methodBodies = classMethodBodies.get(className);

@@ -4,6 +4,7 @@ coverage/
 node_modules/
 .vscode/
 test-runner-profile/
+test-runner-profile-hard/
 .VSCodeCounter
 
 .DS_Store
