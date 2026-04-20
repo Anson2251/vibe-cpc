@@ -1,6 +1,6 @@
 import { Interpreter } from "../../../src/interpreter";
 import { MockIO } from "../../mock-io";
-import { DebuggerController, DebugEvent } from "../../../src/runtime/debugger";
+import { DebuggerController, DebugEvent, type DebugSnapshot } from "../../../src/runtime/debugger";
 
 function oncePaused(controller: DebuggerController): Promise<DebugEvent> {
     return new Promise((resolve) => {
@@ -789,5 +789,863 @@ OUTPUT result
         expect(result.success).toBe(true);
         expect(pausedLines).toContain(3); // CalculateIndex函数中的DEBUGGER
         expect(io.getOutput().trim()).toBe("100");
+    });
+
+    // ========== 边界情况测试 ==========
+
+    test("debugger with minimal program containing only DEBUGGER statement", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let paused = false;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                paused = true;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`DEBUGGER`);
+
+        expect(result.success).toBe(true);
+        expect(paused).toBe(true);
+    });
+
+    test("debugger with consecutive DEBUGGER statements", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DEBUGGER
+DEBUGGER
+DEBUGGER
+`);
+
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(3);
+    });
+
+    test("debugger in WHILE loop with zero iterations", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+x <- 0
+WHILE x > 0
+  DEBUGGER
+  x <- x - 1
+ENDWHILE
+OUTPUT x
+`);
+
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(0);
+        expect(io.getOutput().trim()).toBe("0");
+    });
+
+    test("debugger in WHILE loop with condition becoming false", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+x <- 3
+WHILE x > 0
+  DEBUGGER
+  x <- x - 1
+ENDWHILE
+OUTPUT x
+`);
+
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(3);
+        expect(io.getOutput().trim()).toBe("0");
+    });
+
+    test("debugger in REPEAT UNTIL loop", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+x <- 1
+REPEAT
+  DEBUGGER
+  x <- x + 1
+UNTIL x >= 3
+OUTPUT x
+`);
+
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(2);
+        expect(io.getOutput().trim()).toBe("3");
+    });
+
+    test("debugger in CASE statement", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const pausedCases: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const xVar = event.snapshot.scopes[0]?.variables.find((v) => v.name === "x");
+                if (xVar) {
+                    pausedCases.push(Number(xVar.value));
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+FOR x <- 1 TO 3
+  CASE OF x
+    1: DEBUGGER
+    2: DEBUGGER
+    3: DEBUGGER
+  ENDCASE
+NEXT x
+OUTPUT x
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedCases).toEqual([1, 2, 3]);
+    });
+
+    test("debugger pauses on error when reason is error", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let errorPaused = false;
+        let errorSnapshot: DebugSnapshot | undefined;
+        controller.onEvent((event) => {
+            if (event.type === "paused" && event.snapshot.reason === "error") {
+                errorPaused = true;
+                errorSnapshot = event.snapshot;
+                controller.continue();
+            }
+        });
+
+        // 除以零会产生错误
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+x <- 10 DIV 0
+OUTPUT x
+`);
+
+        expect(result.success).toBe(false);
+        expect(errorPaused).toBe(true);
+        expect(errorSnapshot?.error).toBeDefined();
+    });
+
+    test("debugger in PROCEDURE without return value", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pausedInProcedure = false;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const frame = event.snapshot.callStack[0];
+                if (frame?.routineName === "DoSomething") {
+                    pausedInProcedure = true;
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+PROCEDURE DoSomething()
+  DEBUGGER
+  OUTPUT "inside"
+ENDPROCEDURE
+
+CALL DoSomething()
+OUTPUT "done"
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedInProcedure).toBe(true);
+        expect(io.getOutput().trim()).toBe("inside\ndone");
+    });
+
+    test("debugger in nested loops", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE i : INTEGER
+DECLARE j : INTEGER
+FOR i <- 1 TO 2
+  FOR j <- 1 TO 2
+    DEBUGGER
+  NEXT j
+NEXT i
+OUTPUT i + j
+`);
+
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(4);
+    });
+
+    test("debugger event listener can be removed", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let listener1Count = 0;
+        let listener2Count = 0;
+
+        const off1 = controller.onEvent((event) => {
+            if (event.type === "paused") {
+                listener1Count += 1;
+            }
+        });
+
+        const off2 = controller.onEvent((event) => {
+            if (event.type === "paused") {
+                listener2Count += 1;
+            }
+        });
+
+        // 添加一个控制监听器来处理 continue
+        const offControl = controller.onEvent((event) => {
+            if (event.type === "paused") {
+                controller.continue();
+            }
+        });
+
+        // 第一次执行，两个监听器都工作
+        let result = await interpreter.execute(`DEBUGGER`);
+        expect(result.success).toBe(true);
+        expect(listener1Count).toBe(1);
+        expect(listener2Count).toBe(1);
+
+        // 移除第一个监听器
+        off1();
+
+        // 第二次执行，只有监听器2工作
+        result = await interpreter.execute(`DEBUGGER`);
+        expect(result.success).toBe(true);
+        expect(listener1Count).toBe(1);
+        expect(listener2Count).toBe(2);
+
+        // 移除第二个监听器
+        off2();
+
+        // 第三次执行，没有监听器工作（除了控制监听器）
+        result = await interpreter.execute(`DEBUGGER`);
+        expect(result.success).toBe(true);
+        expect(listener1Count).toBe(1);
+        expect(listener2Count).toBe(2);
+
+        offControl();
+    });
+
+    test("debugger handles invalid breakpoint lines gracefully", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        // 设置无效的断点行号
+        controller.setBreakpoints([-1, 0, 1.5, NaN, Infinity]);
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+OUTPUT "hello"
+OUTPUT "world"
+`);
+
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(0);
+        expect(controller.getBreakpoints()).toEqual([]);
+    });
+
+    test("debugger addBreakpoint and removeBreakpoint", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let pausedLines: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pausedLines.push(event.snapshot.location.line ?? -1);
+                controller.continue();
+            }
+        });
+
+        // 添加断点
+        controller.addBreakpoint(2);
+        controller.addBreakpoint(3);
+
+        let result = await interpreter.execute(`
+OUTPUT 1
+OUTPUT 2
+OUTPUT 3
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedLines).toContain(2);
+        expect(pausedLines).toContain(3);
+
+        // 移除第2行的断点
+        pausedLines = [];
+        controller.removeBreakpoint(2);
+
+        result = await interpreter.execute(`
+OUTPUT 1
+OUTPUT 2
+OUTPUT 3
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedLines).not.toContain(2);
+        expect(pausedLines).toContain(3);
+
+        // 清除所有断点
+        pausedLines = [];
+        controller.clearBreakpoints();
+
+        result = await interpreter.execute(`
+OUTPUT 1
+OUTPUT 2
+OUTPUT 3
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedLines).toEqual([]);
+    });
+
+    test("debugger stepOver at global scope", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const pausedLines: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type !== "paused") {
+                return;
+            }
+
+            pausedLines.push(event.snapshot.location.line ?? -1);
+
+            if (pausedLines.length === 1) {
+                controller.stepOver();
+            } else {
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+DEBUGGER
+x <- 1
+x <- x + 1
+OUTPUT x
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedLines.length).toBeGreaterThanOrEqual(2);
+        expect(pausedLines[0]).toBe(3);
+    });
+
+    test("debugger with RECORD type inspection", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let recordSnapshot: DebugSnapshot | undefined;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                recordSnapshot = event.snapshot;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+TYPE TPerson
+  name : STRING
+  age : INTEGER
+ENDTYPE
+
+DECLARE person : TPerson
+person.name <- "Alice"
+person.age <- 25
+DEBUGGER
+OUTPUT person.name
+`);
+
+        expect(result.success).toBe(true);
+        expect(recordSnapshot).toBeDefined();
+
+        const personVar = recordSnapshot?.scopes[0]?.variables.find((v: { name: string }) => v.name === "person");
+        expect(personVar).toBeDefined();
+        expect(personVar?.type).toBe("TPerson");
+    });
+
+    test("debugger with empty scope variables", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let snapshot: DebugSnapshot | undefined;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                snapshot = event.snapshot;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`DEBUGGER`);
+
+        expect(result.success).toBe(true);
+        expect(snapshot).toBeDefined();
+        expect(snapshot?.scopes).toBeDefined();
+        expect(Array.isArray(snapshot?.scopes)).toBe(true);
+    });
+
+    test("debugger with deeply nested function calls", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const callStackDepths: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                callStackDepths.push(event.snapshot.callStack.length);
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+FUNCTION Level3() RETURNS INTEGER
+  DEBUGGER
+  RETURN 3
+ENDFUNCTION
+
+FUNCTION Level2() RETURNS INTEGER
+  DEBUGGER
+  RETURN Level3()
+ENDFUNCTION
+
+FUNCTION Level1() RETURNS INTEGER
+  DEBUGGER
+  RETURN Level2()
+ENDFUNCTION
+
+OUTPUT Level1()
+`);
+
+        expect(result.success).toBe(true);
+        expect(callStackDepths).toEqual([1, 2, 3]);
+    });
+
+    test("debugger condition with missing variable returns false", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        // 使用不存在的变量作为条件
+        controller.setConditionalBreakpointExpression(2, "nonExistentVar > 0");
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+OUTPUT "test"
+OUTPUT "done"
+`);
+
+        expect(result.success).toBe(true);
+        // 由于条件评估应该失败（变量不存在），断点不应该触发
+        expect(pauseCount).toBe(0);
+    });
+
+    test("debugger handles expression with division by zero in condition", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        controller.setConditionalBreakpointExpression(2, "x DIV 0 = 0");
+
+        let pauseCount = 0;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pauseCount += 1;
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE x : INTEGER
+x <- 10
+OUTPUT x
+`);
+
+        // 条件表达式中的除零错误应该被捕获，断点不应该触发
+        expect(result.success).toBe(true);
+        expect(pauseCount).toBe(0);
+    });
+
+    test("debugger isPaused returns correct state", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        expect(controller.isPaused()).toBe(false);
+
+        const pausedPromise = oncePaused(controller);
+        const runPromise = interpreter.execute(`DEBUGGER`);
+
+        await pausedPromise;
+        expect(controller.isPaused()).toBe(true);
+
+        controller.continue();
+        await runPromise;
+        expect(controller.isPaused()).toBe(false);
+    });
+
+    test("debugger with multiple function calls in single expression", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const pausedLines: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                pausedLines.push(event.snapshot.location.line ?? -1);
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+FUNCTION GetA() RETURNS INTEGER
+  DEBUGGER
+  RETURN 1
+ENDFUNCTION
+
+FUNCTION GetB() RETURNS INTEGER
+  DEBUGGER
+  RETURN 2
+ENDFUNCTION
+
+OUTPUT GetA() + GetB()
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedLines).toContain(3);
+        expect(pausedLines).toContain(8);
+        expect(io.getOutput().trim()).toBe("3");
+    });
+
+    test("debugger stepInto enters nested function from expression", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const pausedLines: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type !== "paused") {
+                return;
+            }
+
+            pausedLines.push(event.snapshot.location.line ?? -1);
+
+            if (pausedLines.length === 1) {
+                controller.stepInto();
+            } else if (pausedLines.length < 4) {
+                controller.stepInto();
+            } else {
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+FUNCTION GetValue() RETURNS INTEGER
+  DEBUGGER
+  RETURN 42
+ENDFUNCTION
+
+DEBUGGER
+DECLARE x : INTEGER
+x <- GetValue()
+OUTPUT x
+`);
+
+        expect(result.success).toBe(true);
+        expect(pausedLines.length).toBeGreaterThanOrEqual(3);
+    });
+
+    test("debugger handles large call stack", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        const maxDepths: number[] = [];
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                maxDepths.push(event.snapshot.callStack.length);
+                controller.continue();
+            }
+        });
+
+        // 递归调用100次
+        const result = await interpreter.execute(`
+FUNCTION Recurse(n : INTEGER) RETURNS INTEGER
+  IF n <= 1 THEN
+    DEBUGGER
+    RETURN 1
+  ENDIF
+  RETURN n + Recurse(n - 1)
+ENDFUNCTION
+
+OUTPUT Recurse(100)
+`);
+
+        expect(result.success).toBe(true);
+        expect(maxDepths.length).toBeGreaterThan(0);
+        expect(maxDepths[0]).toBe(100);
+    });
+
+    test("debugger with string variable inspection", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let strValue: unknown;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const strVar = event.snapshot.scopes[0]?.variables.find((v) => v.name === "msg");
+                if (strVar) {
+                    strValue = strVar.value;
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE msg : STRING
+msg <- "Hello, World!"
+DEBUGGER
+OUTPUT msg
+`);
+
+        expect(result.success).toBe(true);
+        expect(strValue).toBe("Hello, World!");
+    });
+
+    test("debugger with boolean variable inspection", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let boolValue: unknown;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const boolVar = event.snapshot.scopes[0]?.variables.find((v) => v.name === "flag");
+                if (boolVar) {
+                    boolValue = boolVar.value;
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE flag : BOOLEAN
+flag <- TRUE
+DEBUGGER
+OUTPUT flag
+`);
+
+        expect(result.success).toBe(true);
+        expect(boolValue).toBe(true);
+    });
+
+    test("debugger with real variable inspection", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let realValue: unknown;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const realVar = event.snapshot.scopes[0]?.variables.find((v) => v.name === "pi");
+                if (realVar) {
+                    realValue = realVar.value;
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE pi : REAL
+pi <- 3.14159
+DEBUGGER
+OUTPUT pi
+`);
+
+        expect(result.success).toBe(true);
+        expect(realValue).toBeCloseTo(3.14159, 5);
+    });
+
+    test("debugger with char variable inspection", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let charValue: unknown;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const charVar = event.snapshot.scopes[0]?.variables.find((v) => v.name === "ch");
+                if (charVar) {
+                    charValue = charVar.value;
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE ch : CHAR
+ch <- 'A'
+DEBUGGER
+OUTPUT ch
+`);
+
+        expect(result.success).toBe(true);
+        expect(charValue).toBe("A");
+    });
+
+    test("debugger with array variable inspection", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+        const controller = new DebuggerController();
+        interpreter.attachDebugger(controller);
+
+        let arrayValue: unknown;
+        controller.onEvent((event) => {
+            if (event.type === "paused") {
+                const arrVar = event.snapshot.scopes[0]?.variables.find((v) => v.name === "arr");
+                if (arrVar) {
+                    arrayValue = arrVar.value;
+                }
+                controller.continue();
+            }
+        });
+
+        const result = await interpreter.execute(`
+DECLARE arr : ARRAY[1:3] OF INTEGER
+arr[1] <- 10
+arr[2] <- 20
+arr[3] <- 30
+DEBUGGER
+OUTPUT arr[1]
+`);
+
+        expect(result.success).toBe(true);
+        expect(Array.isArray(arrayValue)).toBe(true);
+        expect(arrayValue).toEqual([10, 20, 30]);
+    });
+
+    test("DEBUGGER produces error in CAIE_ONLY mode", async () => {
+        const io = new MockIO();
+        const interpreter = new Interpreter(io);
+
+        const result = await interpreter.execute(`
+// CAIE_ONLY
+DECLARE x : INTEGER
+x <- 1
+DEBUGGER
+OUTPUT x
+`);
+
+        expect(result.success).toBe(false);
+        expect(result.error?.message).toContain("DEBUGGER is not a CAIE standard feature");
     });
 });

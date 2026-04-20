@@ -1623,6 +1623,10 @@ export class Evaluator {
         return this.evaluate(statement);
     }
 
+    buildErrorSnapshot(error: RuntimeError): DebugSnapshot {
+        return this.buildDebugSnapshot("error", error.line, error.column);
+    }
+
     private buildDebugSnapshot(
         reason: DebugPauseReason,
         line?: number,

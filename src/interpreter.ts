@@ -12,10 +12,10 @@ import { Linker } from "./runtime/linker";
 import type { IOInterface } from "./io/io-interface";
 import type { ProgramNode } from "./parser/ast-nodes";
 import type { Token } from "./lexer/tokens";
-import { PseudocodeError, ErrorHandler } from "./errors";
+import { PseudocodeError, ErrorHandler, RuntimeError } from "./errors";
 import { InterpreterResult, toPseudocodeError } from "./result";
 import { err } from "neverthrow";
-import { DebuggerController } from "./runtime/debugger";
+import { DebuggerController, type DebugSnapshot } from "./runtime/debugger";
 
 function unescapeString(str: string) {
     const escapes: Record<string, string> = {
@@ -137,6 +137,18 @@ export class Interpreter {
         }
 
         if (evalResult.isErr()) {
+            // 如果有调试器控制器，在错误时暂停调试器
+            if (this.debuggerController && evalResult.error instanceof RuntimeError) {
+                const snapshot = evaluator.buildErrorSnapshot(evalResult.error);
+                await this.debuggerController.maybePause({
+                    ...snapshot,
+                    error: {
+                        message: evalResult.error.message,
+                        line: evalResult.error.line,
+                        column: evalResult.error.column,
+                    },
+                });
+            }
             return this.buildErrorResult(evalResult.error, startTime);
         }
 
