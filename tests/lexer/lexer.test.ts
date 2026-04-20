@@ -49,7 +49,7 @@ describe("Lexer", () => {
 
     describe("Numbers", () => {
         test("should tokenize integer literals", () => {
-            const code = "42 0 -5";
+            const code = "42 0 5";
             const lexer = new Lexer(code);
             const tokens = lexer.tokenize();
 
@@ -59,11 +59,11 @@ describe("Lexer", () => {
             expect(tokens[1].type).toBe(TokenType.INTEGER_LITERAL);
             expect(tokens[1].value).toBe(0);
             expect(tokens[2].type).toBe(TokenType.INTEGER_LITERAL);
-            expect(tokens[2].value).toBe(-5);
+            expect(tokens[2].value).toBe(5);
         });
 
         test("should tokenize real literals", () => {
-            const code = "3.14 0.5 -2.5";
+            const code = "3.14 0.5 2.5";
             const lexer = new Lexer(code);
             const tokens = lexer.tokenize();
 
@@ -73,7 +73,18 @@ describe("Lexer", () => {
             expect(tokens[1].type).toBe(TokenType.REAL_LITERAL);
             expect(tokens[1].value).toBe(0.5);
             expect(tokens[2].type).toBe(TokenType.REAL_LITERAL);
-            expect(tokens[2].value).toBe(-2.5);
+            expect(tokens[2].value).toBe(2.5);
+        });
+
+        test("should tokenize minus as separate token", () => {
+            const code = "-5";
+            const lexer = new Lexer(code);
+            const tokens = lexer.tokenize();
+
+            expect(tokens).toHaveLength(3);
+            expect(tokens[0].type).toBe(TokenType.MINUS);
+            expect(tokens[1].type).toBe(TokenType.INTEGER_LITERAL);
+            expect(tokens[1].value).toBe(5);
         });
     });
 

@@ -76,9 +76,7 @@ export class Lexer {
                 this.addToken(TokenType.PLUS);
                 break;
             case "-":
-                // this.consumeSpace();
-                if (this.isDigit(this.peek())) this.number();
-                else this.addToken(TokenType.MINUS);
+                this.addToken(TokenType.MINUS);
                 break;
             case "*":
                 this.addToken(TokenType.MULTIPLY);

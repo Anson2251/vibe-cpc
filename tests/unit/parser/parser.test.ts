@@ -147,7 +147,9 @@ ENDCASE\n`);
         test("parses FOR-TO-STEP-NEXT", () => {
             const ast = parse("FOR i <- 10 TO 1 STEP -1\nOUTPUT i\nNEXT i\n");
             const forNode = ast.body[0] as any;
-            expect(forNode.step.value).toBe(-1);
+            expect(forNode.step.type).toBe("UnaryExpression");
+            expect(forNode.step.operator).toBe("-");
+            expect(forNode.step.operand.value).toBe(1);
         });
 
         test("parses WHILE-ENDWHILE", () => {

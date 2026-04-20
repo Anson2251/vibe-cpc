@@ -96,6 +96,22 @@ OUTPUT StudentNames[2]
             expect(output).toBe(["Ali", "Bob"].join("\n"));
         });
 
+        test("array index with subtraction expression", async () => {
+            const { result, output } = await execute(`
+DECLARE data : ARRAY[1:5] OF INTEGER
+DECLARE i : INTEGER
+data[1] <- 10
+data[2] <- 20
+data[3] <- 30
+i <- 2
+OUTPUT data[i-1]
+OUTPUT data[i]
+OUTPUT data[i+1]
+`);
+            expect(result.success).toBe(true);
+            expect(output).toBe(["10", "20", "30"].join("\n"));
+        });
+
         test("array element assignment from another element", async () => {
             const { result, output } = await execute(`
 DECLARE StudentNames : ARRAY[1:30] OF STRING
