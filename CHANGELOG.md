@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0-alpha.4] - 2026-04-20
+
+### Added
+- `DO` keyword is now optional in `WHILE` loops
+- Debugger error snapshot support with expanded test coverage
+- Array index errors now include line and column information
+- Error reporting for certain routines now includes line and column information
+- Async support for expressions in assignments and array access
+- Copy-on-Write optimization for runtime performance
+- Integration tests for array parameter passing and simple array operations
+- Error location test suite (`error-location.test.ts`)
+
+### Changed
+- **Performance**: Copy-on-Write and trampoline improvements for better runtime performance
+- Environment module refactored for better variable tracking
+- Heap module refactored with improved object management
+- Trampoline engine refactored with improved seq/loop handling
+- Variable atoms module expanded with additional helper functions
+- Evaluator types module updated for better type safety
+- Array helpers module updated for better array manipulation
+- Debugger module updated with error snapshot support
+- Lexer updated to support optional `DO` keyword in WHILE loops
+- Parser updated to handle subtraction expressions in array indices (e.g., `data[i-1]`)
+- Browser index updated with additional exports
+- Interpreter updated with improved execution flow
+
+### Fixed
+- Subtraction expressions in array indices (e.g., `data[i-1]`) now parse correctly
+- Line and column tracking for error reporting in certain routines
+- Various linter complaints resolved
+
 ## [0.1.0-alpha.3] - 2026-04-20
 
 ### Added
