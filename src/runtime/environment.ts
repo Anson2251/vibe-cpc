@@ -97,18 +97,20 @@ export class Environment {
         value: unknown,
         isConstant: boolean = false,
         fromHeap: boolean = false,
+        line?: number,
+        column?: number,
     ): void {
         if (this.variables.has(name)) {
-            throw new RuntimeError(`Variable '${name}' already declared in this scope`);
+            throw new RuntimeError(`Variable '${name}' already declared in this scope`, line, column);
         }
 
         const atom = VariableAtomFactory.createAtom(type, value, isConstant, this.heap, fromHeap);
         this.variables.set(name, atom);
     }
 
-    defineByRef(name: string, type: TypeInfo, address: number): void {
+    defineByRef(name: string, type: TypeInfo, address: number, line?: number, column?: number): void {
         if (this.variables.has(name)) {
-            throw new RuntimeError(`Variable '${name}' already declared in this scope`);
+            throw new RuntimeError(`Variable '${name}' already declared in this scope`, line, column);
         }
 
         this.heap.incrementRef(address);
@@ -121,9 +123,9 @@ export class Environment {
      * For complex types (arrays, records), shares the underlying heap storage
      * and only copies on write.
      */
-    defineByValCOW(name: string, type: TypeInfo, value: unknown): void {
+    defineByValCOW(name: string, type: TypeInfo, value: unknown, line?: number, column?: number): void {
         if (this.variables.has(name)) {
-            throw new RuntimeError(`Variable '${name}' already declared in this scope`);
+            throw new RuntimeError(`Variable '${name}' already declared in this scope`, line, column);
         }
 
         // Check if type is a complex type (array or record) that uses heap storage
@@ -143,43 +145,43 @@ export class Environment {
         this.variables.set(name, atom);
     }
 
-    get(name: string): unknown {
+    get(name: string, line?: number, column?: number): unknown {
         const atom = this.variables.get(name);
         if (atom !== undefined) {
             return atom.getValue(this.heap);
         }
 
         if (this.parent !== undefined) {
-            return this.parent.get(name);
+            return this.parent.get(name, line, column);
         }
 
-        throw new RuntimeError(`Undefined variable '${name}'`);
+        throw new RuntimeError(`Undefined variable '${name}'`, line, column);
     }
 
-    getAtom(name: string): VariableAtom {
+    getAtom(name: string, line?: number, column?: number): VariableAtom {
         const atom = this.variables.get(name);
         if (atom !== undefined) {
             return atom;
         }
 
         if (this.parent !== undefined) {
-            return this.parent.getAtom(name);
+            return this.parent.getAtom(name, line, column);
         }
 
-        throw new RuntimeError(`Undefined variable '${name}'`);
+        throw new RuntimeError(`Undefined variable '${name}'`, line, column);
     }
 
-    getType(name: string): TypeInfo {
+    getType(name: string, line?: number, column?: number): TypeInfo {
         const atom = this.variables.get(name);
         if (atom !== undefined) {
             return atom.type;
         }
 
         if (this.parent !== undefined) {
-            return this.parent.getType(name);
+            return this.parent.getType(name, line, column);
         }
 
-        throw new RuntimeError(`Undefined variable '${name}'`);
+        throw new RuntimeError(`Undefined variable '${name}'`, line, column);
     }
 
     has(name: string): boolean {
@@ -194,89 +196,89 @@ export class Environment {
         return false;
     }
 
-    assign(name: string, value: unknown): void {
+    assign(name: string, value: unknown, line?: number, column?: number): void {
         const atom = this.variables.get(name);
         if (atom !== undefined) {
             if (atom.isConstant) {
-                throw new RuntimeError(`Cannot assign to constant '${name}'`);
+                throw new RuntimeError(`Cannot assign to constant '${name}'`, line, column);
             }
 
-            VariableAtomFactory.validateValue(atom.type, value);
+            VariableAtomFactory.validateValue(atom.type, value, line, column);
 
             // BYREF variables should never trigger COW - they are meant to be shared
             if (atom.isByRef) {
-                this.heap.write(atom.getAddress(), value, atom.type);
+                this.heap.write(atom.getAddress(), value, atom.type, line, column);
                 return;
             }
 
             // Check if this is a shared variable (COW candidate)
             // Only use COW for BYVAL parameters with refCount > 1
-            const heapObj = this.heap.readUnsafe(atom.getAddress());
+            const heapObj = this.heap.readUnsafe(atom.getAddress(), line, column);
             if (heapObj.refCount > 1) {
                 // Use COW semantics: create a copy
-                const newAddress = this.heap.writeCOW(atom.getAddress(), value, atom.type);
+                const newAddress = this.heap.writeCOW(atom.getAddress(), value, atom.type, line, column);
                 if (newAddress !== atom.getAddress()) {
                     atom.address = newAddress;
                 }
             } else {
                 // Normal write for non-shared variables
-                this.heap.write(atom.getAddress(), value, atom.type);
+                this.heap.write(atom.getAddress(), value, atom.type, line, column);
             }
 
             return;
         }
 
         if (this.parent !== undefined) {
-            this.parent.assign(name, value);
+            this.parent.assign(name, value, line, column);
             return;
         }
 
-        throw new RuntimeError(`Undefined variable '${name}'`);
+        throw new RuntimeError(`Undefined variable '${name}'`, line, column);
     }
 
-    assignPointer(name: string, sourceAddress: number): void {
+    assignPointer(name: string, sourceAddress: number, line?: number, column?: number): void {
         const atom = this.variables.get(name);
         if (atom !== undefined) {
             if (atom.isConstant) {
-                throw new RuntimeError(`Cannot assign to constant '${name}'`);
+                throw new RuntimeError(`Cannot assign to constant '${name}'`, line, column);
             }
 
             const oldAddress = atom.getAddress();
             this.heap.incrementRef(sourceAddress);
             atom.address = sourceAddress;
 
-            this.heap.decrementRef(oldAddress);
+            this.heap.decrementRef(oldAddress, line, column);
 
             return;
         }
 
         if (this.parent !== undefined) {
-            this.parent.assignPointer(name, sourceAddress);
+            this.parent.assignPointer(name, sourceAddress, line, column);
             return;
         }
 
-        throw new RuntimeError(`Undefined variable '${name}'`);
+        throw new RuntimeError(`Undefined variable '${name}'`, line, column);
     }
 
-    defineRoutine(signature: RoutineSignature): void {
+    defineRoutine(signature: RoutineSignature, line?: number, column?: number): void {
         if (this.routines.has(signature.name)) {
-            throw new RuntimeError(`Routine '${signature.name}' already declared`);
+            throw new RuntimeError(`Routine '${signature.name}' already declared`, line, column);
         }
 
         this.routines.set(signature.name, signature);
     }
 
-    getRoutine(name: string): RoutineSignature {
+    getRoutine(name: string, line?: number, column?: number): RoutineSignature {
         const routine = this.routines.get(name);
         if (routine !== undefined) {
             return routine;
         }
 
         if (this.parent !== undefined) {
-            return this.parent.getRoutine(name);
+            return this.parent.getRoutine(name, line, column);
         }
 
-        throw new RuntimeError(`Undefined routine '${name}'`);
+        throw new RuntimeError(`Undefined routine '${name}'`, line, column);
     }
 
     hasRoutine(name: string): boolean {
@@ -297,30 +299,30 @@ export class Environment {
         return handle;
     }
 
-    getFileHandle(variableName: string): number {
+    getFileHandle(variableName: string, line?: number, column?: number): number {
         if (this.fileHandles.has(variableName)) {
             return this.fileHandles.get(variableName)!;
         }
 
         if (this.parent !== undefined) {
-            return this.parent.getFileHandle(variableName);
+            return this.parent.getFileHandle(variableName, line, column);
         }
 
-        throw new RuntimeError(`Undefined file handle '${variableName}'`);
+        throw new RuntimeError(`Undefined file handle '${variableName}'`, line, column);
     }
 
-    releaseFileHandle(variableName: string): void {
+    releaseFileHandle(variableName: string, line?: number, column?: number): void {
         if (this.fileHandles.has(variableName)) {
             this.fileHandles.delete(variableName);
             return;
         }
 
         if (this.parent !== undefined) {
-            this.parent.releaseFileHandle(variableName);
+            this.parent.releaseFileHandle(variableName, line, column);
             return;
         }
 
-        throw new RuntimeError(`Undefined file handle '${variableName}'`);
+        throw new RuntimeError(`Undefined file handle '${variableName}'`, line, column);
     }
 
     createChild(): Environment {

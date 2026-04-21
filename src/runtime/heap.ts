@@ -81,14 +81,14 @@ export class Heap {
         return address;
     }
 
-    deallocate(address: number): void {
+    deallocate(address: number, line?: number, column?: number): void {
         if (address === NULL_POINTER) {
             return;
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
 
         obj.refCount--;
@@ -117,30 +117,30 @@ export class Heap {
         }
     }
 
-    read(address: number): HeapObject {
+    read(address: number, line?: number, column?: number): HeapObject {
         if (address === NULL_POINTER) {
-            throw new RuntimeError("Null pointer dereference");
+            throw new RuntimeError("Null pointer dereference", line, column);
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
         return obj;
     }
 
-    write(address: number, value: unknown, type: TypeInfo): void {
+    write(address: number, value: unknown, type: TypeInfo, line?: number, column?: number): void {
         if (address === NULL_POINTER) {
-            throw new RuntimeError("Cannot write to null pointer");
+            throw new RuntimeError("Cannot write to null pointer", line, column);
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
 
         if (!obj.isMutable) {
-            throw new RuntimeError("Cannot modify constant");
+            throw new RuntimeError("Cannot modify constant", line, column);
         }
 
         obj.value = this.deepCopyValue(value, type, true);
@@ -151,18 +151,18 @@ export class Heap {
      * If the object is shared (refCount > 1), create a copy and write to the copy.
      * Returns the address to use (original or new copy).
      */
-    writeCOW(address: number, value: unknown, type: TypeInfo): number {
+    writeCOW(address: number, value: unknown, type: TypeInfo, line?: number, column?: number): number {
         if (address === NULL_POINTER) {
-            throw new RuntimeError("Cannot write to null pointer");
+            throw new RuntimeError("Cannot write to null pointer", line, column);
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
 
         if (!obj.isMutable) {
-            throw new RuntimeError("Cannot modify constant");
+            throw new RuntimeError("Cannot modify constant", line, column);
         }
 
         // If shared, create a copy
@@ -188,14 +188,14 @@ export class Heap {
         }
     }
 
-    decrementRef(address: number): void {
+    decrementRef(address: number, line?: number, column?: number): void {
         if (address === NULL_POINTER) {
             return;
         }
 
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
 
         obj.refCount--;
@@ -238,37 +238,37 @@ export class Heap {
         return new Map(this.memory);
     }
 
-    readElementAddress(arrayAddress: number, index: number): number {
-        const obj = this.read(arrayAddress);
+    readElementAddress(arrayAddress: number, index: number, line?: number, column?: number): number {
+        const obj = this.read(arrayAddress, line, column);
         const arrayValue = obj.value;
         if (!Array.isArray(arrayValue)) {
-            throw new RuntimeError("Array access on non-array value");
+            throw new RuntimeError("Array access on non-array value", line, column);
         }
 
         const lowerBound = this.getArrayLowerBound(obj);
 
         if (index < lowerBound || index > lowerBound + arrayValue.length - 1) {
-            throw new RuntimeError(`Array index out of bounds: ${index}`);
+            throw new RuntimeError(`Array index out of bounds: ${index}`, line, column);
         }
 
         const elementAddress: unknown = arrayValue[index - lowerBound];
         if (typeof elementAddress !== "number") {
-            throw new RuntimeError("Invalid array element address");
+            throw new RuntimeError("Invalid array element address", line, column);
         }
 
         return elementAddress;
     }
 
-    readFieldAddress(recordAddress: number, field: string): number {
-        const obj = this.read(recordAddress);
+    readFieldAddress(recordAddress: number, field: string, line?: number, column?: number): number {
+        const obj = this.read(recordAddress, line, column);
         const recordValue = obj.value;
         if (!isRecord(recordValue)) {
-            throw new RuntimeError("Record access on non-record value");
+            throw new RuntimeError("Record access on non-record value", line, column);
         }
 
         const fieldAddress = recordValue[field];
         if (typeof fieldAddress !== "number") {
-            throw new RuntimeError(`Invalid field address for '${field}'`);
+            throw new RuntimeError(`Invalid field address for '${field}'`, line, column);
         }
 
         return fieldAddress;
@@ -282,22 +282,28 @@ export class Heap {
         this.write(address, value, type);
     }
 
-    readUnsafe(address: number): HeapObject {
+    readUnsafe(address: number, line?: number, column?: number): HeapObject {
+        if (address === NULL_POINTER) {
+            throw new RuntimeError("Null pointer dereference", line, column);
+        }
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
         return obj;
     }
 
-    writeUnsafe(address: number, value: unknown, type: TypeInfo): void {
+    writeUnsafe(address: number, value: unknown, type: TypeInfo, line?: number, column?: number): void {
+        if (address === NULL_POINTER) {
+            throw new RuntimeError("Cannot write to null pointer", line, column);
+        }
         const obj = this.memory.get(address);
         if (!obj) {
-            throw new RuntimeError(`Invalid memory address: ${address}`);
+            throw new RuntimeError(`Invalid memory address: ${address}`, line, column);
         }
 
         if (!obj.isMutable) {
-            throw new RuntimeError("Cannot modify constant");
+            throw new RuntimeError("Cannot modify constant", line, column);
         }
 
         obj.value = this.deepCopyValue(value, type, true);
@@ -324,16 +330,16 @@ export class Heap {
         return elementAddress;
     }
 
-    readFieldAddressUnsafe(recordAddress: number, field: string): number {
-        const obj = this.readUnsafe(recordAddress);
+    readFieldAddressUnsafe(recordAddress: number, field: string, line?: number, column?: number): number {
+        const obj = this.readUnsafe(recordAddress, line, column);
         const recordValue = obj.value;
         if (!isRecord(recordValue)) {
-            throw new RuntimeError("Record access on non-record value");
+            throw new RuntimeError("Record access on non-record value", line, column);
         }
 
         const fieldAddress = recordValue[field];
         if (typeof fieldAddress !== "number") {
-            throw new RuntimeError(`Invalid field address for '${field}'`);
+            throw new RuntimeError(`Invalid field address for '${field}'`, line, column);
         }
 
         return fieldAddress;

@@ -1267,7 +1267,7 @@ export class Evaluator {
             );
         }
 
-        const selfHeapObj = this.heap.readUnsafe(selfAddress);
+        const selfHeapObj = this.heap.readUnsafe(selfAddress, node.line, node.column);
         const selfType = selfHeapObj.type;
         if (typeof selfType !== "object" || !("name" in selfType)) {
             throw new RuntimeError(
@@ -1421,7 +1421,25 @@ export class Evaluator {
 
             if (routineInfo.isBuiltIn && routineInfo.implementation) {
                 const args = node.arguments.map((arg) => this.evaluate(arg));
-                return done(routineInfo.implementation(...args));
+                try {
+                    return done(routineInfo.implementation(...args));
+                } catch (error) {
+                    if (error instanceof RuntimeError) {
+                        if (!error.line || !error.column) {
+                            throw new RuntimeError(
+                                error.message,
+                                node.line,
+                                node.column,
+                            );
+                        }
+                        throw error;
+                    }
+                    throw new RuntimeError(
+                        String(error),
+                        node.line,
+                        node.column,
+                    );
+                }
             }
         }
 
@@ -2449,7 +2467,7 @@ export class Evaluator {
 
     private evaluateArrayAccess(node: ArrayAccessNode): unknown {
         const address = this.resolveTargetAddress(node);
-        return this.heap.readUnsafe(address).value;
+        return this.heap.readUnsafe(address, node.line, node.column).value;
     }
 
     private evaluateArrayAccessBounce(node: ArrayAccessNode): Bounce {
@@ -2467,7 +2485,7 @@ export class Evaluator {
                     const arrayAtom = this.resolveArrayRootAtom(node);
                     const arrayAddress = arrayAtom.getAddress();
                     const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, index, node.line, node.column);
-                    return done(this.heap.readUnsafe(elemAddr).value);
+                    return done(this.heap.readUnsafe(elemAddr, node.line, node.column).value);
                 },
             );
         }
@@ -2479,14 +2497,14 @@ export class Evaluator {
             const elemAddr = this.heap.readElementAddressUnsafe(arrayAddress, indices[0], node.line, node.column);
 
             if (indices.length === 1) {
-                return done(this.heap.readUnsafe(elemAddr).value);
+                return done(this.heap.readUnsafe(elemAddr, node.line, node.column).value);
             }
 
             let currentAddress = elemAddr;
             for (let i = 1; i < indices.length; i++) {
                 currentAddress = this.heap.readElementAddressUnsafe(currentAddress, indices[i], node.line, node.column);
             }
-            return done(this.heap.readUnsafe(currentAddress).value);
+            return done(this.heap.readUnsafe(currentAddress, node.line, node.column).value);
         });
     }
 
@@ -2579,7 +2597,25 @@ export class Evaluator {
 
             if (routineInfo.isBuiltIn && routineInfo.implementation) {
                 const args = node.arguments.map((arg) => this.evaluate(arg));
-                return routineInfo.implementation(...args);
+                try {
+                    return routineInfo.implementation(...args);
+                } catch (error) {
+                    if (error instanceof RuntimeError) {
+                        if (!error.line || !error.column) {
+                            throw new RuntimeError(
+                                error.message,
+                                node.line,
+                                node.column,
+                            );
+                        }
+                        throw error;
+                    }
+                    throw new RuntimeError(
+                        String(error),
+                        node.line,
+                        node.column,
+                    );
+                }
             }
         }
 
@@ -2682,8 +2718,8 @@ export class Evaluator {
     private evaluateMemberAccess(node: MemberAccessNode): unknown {
         const parentAddress = this.resolveTargetAddress(node.object);
         this.checkFieldVisibility(parentAddress, node.field, node.line, node.column);
-        const fieldAddr = this.heap.readFieldAddressUnsafe(parentAddress, node.field);
-        return this.heap.readUnsafe(fieldAddr).value;
+        const fieldAddr = this.heap.readFieldAddressUnsafe(parentAddress, node.field, node.line, node.column);
+        return this.heap.readUnsafe(fieldAddr, node.line, node.column).value;
     }
 
     private resolveMemberPathType(expression: ExpressionNode): UserDefinedTypeInfo | undefined {
@@ -2847,7 +2883,7 @@ export class Evaluator {
             return address;
         }
 
-        return this.createAndConstructObject(node.className, node.arguments);
+        return this.createAndConstructObject(node.className, node.arguments, node.line, node.column);
     }
 
     private evaluateNewExpressionAsync(node: NewExpressionNode): unknown {
@@ -2857,13 +2893,13 @@ export class Evaluator {
             return this.evaluateNewExpression(node);
         }
 
-        return this.createAndConstructObject(node.className, node.arguments);
+        return this.createAndConstructObject(node.className, node.arguments, node.line, node.column);
     }
 
-    private createAndConstructObject(className: string, args: ExpressionNode[]): number {
+    private createAndConstructObject(className: string, args: ExpressionNode[], line?: number, column?: number): number {
         const classDef = this.resolveFullClassDefinition(className);
         if (!classDef) {
-            throw new RuntimeError(`Unknown class '${className}'`);
+            throw new RuntimeError(`Unknown class '${className}'`, line, column);
         }
 
         const objectValue = this.buildDefaultObjectValue(classDef);
@@ -2993,7 +3029,7 @@ export class Evaluator {
             throw new RuntimeError("Cannot dereference non-pointer value", node.line, node.column);
         }
 
-        const heapResult = this.heap.readUnsafe(ptrValue);
+        const heapResult = this.heap.readUnsafe(ptrValue, node.line, node.column);
 
         return heapResult.value;
     }
@@ -3008,10 +3044,10 @@ export class Evaluator {
             const varAddress = atom.getAddress();
 
             try {
-                const varValue = this.heap.readUnsafe(varAddress).value;
+                const varValue = this.heap.readUnsafe(varAddress, target.line, target.column).value;
                 if (typeof varValue === "number") {
                     try {
-                        const refObj = this.heap.readUnsafe(varValue);
+                        const refObj = this.heap.readUnsafe(varValue, target.line, target.column);
                         if (
                             typeof refObj.value === "object" &&
                             refObj.value !== null &&
@@ -3051,7 +3087,7 @@ export class Evaluator {
         if (isMemberAccessNode(target)) {
             const parentAddress = this.resolveTargetAddress(target.object);
             this.checkFieldVisibility(parentAddress, target.field, target.line, target.column);
-            return this.heap.readFieldAddressUnsafe(parentAddress, target.field);
+            return this.heap.readFieldAddressUnsafe(parentAddress, target.field, target.line, target.column);
         }
 
         if (isPointerDereferenceNode(target)) {
@@ -3127,7 +3163,7 @@ export class Evaluator {
             throw new RuntimeError("Cannot dispose non-pointer value", node.line, node.column);
         }
 
-        this.heap.deallocate(addr);
+        this.heap.deallocate(addr, node.line, node.column);
     }
 
     private isTruthy(value: unknown): boolean {
@@ -3217,6 +3253,8 @@ export class Evaluator {
         if (arrayType.bounds.length === 1) {
             const bound = this.numericArrayBound(
                 this.resolveArrayBound(arrayType.bounds[0], line, column),
+                line,
+                column,
             );
             const size = bound.upper - bound.lower + 1;
             return Array.from({ length: size }, () =>
@@ -3227,6 +3265,8 @@ export class Evaluator {
         const result: unknown[] = [];
         const bound = this.numericArrayBound(
             this.resolveArrayBound(arrayType.bounds[0], line, column),
+            line,
+            column,
         );
         const size = bound.upper - bound.lower + 1;
 
@@ -3349,9 +3389,9 @@ export class Evaluator {
         };
     }
 
-    private numericArrayBound(bound: ArrayBound): { lower: number; upper: number } {
+    private numericArrayBound(bound: ArrayBound, line?: number, column?: number): { lower: number; upper: number } {
         if (!Number.isInteger(bound.lower) || !Number.isInteger(bound.upper)) {
-            throw new RuntimeError("Array bounds must resolve to INTEGER values");
+            throw new RuntimeError("Array bounds must resolve to INTEGER values", line, column);
         }
 
         return { lower: Number(bound.lower), upper: Number(bound.upper) };
@@ -3374,53 +3414,53 @@ export class Evaluator {
         return resolved;
     }
 
-    private getArrayElement(array: unknown, indices: number[]): unknown {
+    private getArrayElement(array: unknown, indices: number[], line?: number, column?: number): unknown {
         if (!Array.isArray(array)) {
-            throw new RuntimeError("Array access on non-array value");
+            throw new RuntimeError("Array access on non-array value", line, column);
         }
 
-        return this.getArrayElementFromValue(array, indices);
+        return this.getArrayElementFromValue(array, indices, line, column);
     }
 
-    private getArrayElementFromValue(array: unknown[], indices: number[]): unknown {
+    private getArrayElementFromValue(array: unknown[], indices: number[], line?: number, column?: number): unknown {
         let currentArray: unknown[] = array;
         for (let i = 0; i < indices.length; i++) {
             const index = indices[i];
             if (!Number.isInteger(index)) {
-                throw new IndexError("Array index must be INTEGER");
+                throw new IndexError("Array index must be INTEGER", line, column);
             }
             if (index < 1 || index > currentArray.length) {
-                throw new IndexError(`Array index out of bounds: ${index}`);
+                throw new IndexError(`Array index out of bounds: ${index}`, line, column);
             }
             if (i === indices.length - 1) {
                 return currentArray[index - 1];
             }
             const subArray = currentArray[index - 1];
             if (!Array.isArray(subArray)) {
-                throw new RuntimeError("Array access on non-array value");
+                throw new RuntimeError("Array access on non-array value", line, column);
             }
             currentArray = subArray;
         }
         return undefined;
     }
 
-    private setArrayElement(array: unknown, indices: number[], value: unknown): void {
+    private setArrayElement(array: unknown, indices: number[], value: unknown, line?: number, column?: number): void {
         if (!Array.isArray(array)) {
-            throw new RuntimeError("Array access on non-array value");
+            throw new RuntimeError("Array access on non-array value", line, column);
         }
 
-        this.setArrayElementInValue(array, indices, value);
+        this.setArrayElementInValue(array, indices, value, line, column);
     }
 
-    private setArrayElementInValue(array: unknown[], indices: number[], value: unknown): void {
+    private setArrayElementInValue(array: unknown[], indices: number[], value: unknown, line?: number, column?: number): void {
         let currentArray: unknown[] = array;
         for (let i = 0; i < indices.length; i++) {
             const index = indices[i];
             if (!Number.isInteger(index)) {
-                throw new IndexError("Array index must be INTEGER");
+                throw new IndexError("Array index must be INTEGER", line, column);
             }
             if (index < 1 || index > currentArray.length) {
-                throw new IndexError(`Array index out of bounds: ${index}`);
+                throw new IndexError(`Array index out of bounds: ${index}`, line, column);
             }
             if (i === indices.length - 1) {
                 currentArray[index - 1] = value;
@@ -3428,7 +3468,7 @@ export class Evaluator {
             }
             const subArray = currentArray[index - 1];
             if (!Array.isArray(subArray)) {
-                throw new RuntimeError("Array access on non-array value");
+                throw new RuntimeError("Array access on non-array value", line, column);
             }
             currentArray = subArray;
         }

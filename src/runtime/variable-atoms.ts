@@ -2,48 +2,6 @@ import { PseudocodeType, TypeInfo } from "../types";
 import { RuntimeError } from "../errors";
 import { Heap, NULL_POINTER } from "./heap";
 
-function ensureNumber(value: unknown, context: string): number {
-    if (typeof value !== "number") {
-        throw new RuntimeError(`${context} expected number, got ${typeof value}`);
-    }
-    return value;
-}
-
-function ensureString(value: unknown, context: string): string {
-    if (typeof value !== "string") {
-        throw new RuntimeError(`${context} expected string, got ${typeof value}`);
-    }
-    return value;
-}
-
-function ensureBoolean(value: unknown, context: string): boolean {
-    if (typeof value !== "boolean") {
-        throw new RuntimeError(`${context} expected boolean, got ${typeof value}`);
-    }
-    return value;
-}
-
-function ensureDate(value: unknown, context: string): Date {
-    if (!(value instanceof Date)) {
-        throw new RuntimeError(`${context} expected date, got ${typeof value}`);
-    }
-    return value;
-}
-
-function ensureArray(value: unknown, context: string): unknown[] {
-    if (!Array.isArray(value)) {
-        throw new RuntimeError(`${context} expected array, got ${typeof value}`);
-    }
-    return value;
-}
-
-function ensureSet(value: unknown, context: string): Set<unknown> {
-    if (!(value instanceof Set)) {
-        throw new RuntimeError(`${context} expected set, got ${typeof value}`);
-    }
-    return value;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -71,12 +29,12 @@ export class VariableAtom {
         return heap.readUnsafe(this.address).value;
     }
 
-    setValue(heap: Heap, value: unknown): void {
+    setValue(heap: Heap, value: unknown, line?: number, column?: number): void {
         if (this.isConstant) {
-            throw new RuntimeError("Cannot assign to constant");
+            throw new RuntimeError("Cannot assign to constant", line, column);
         }
 
-        heap.write(this.address, value, this.type);
+        heap.write(this.address, value, this.type, line, column);
     }
 
     /**
@@ -84,12 +42,12 @@ export class VariableAtom {
      * If the underlying object is shared (refCount > 1), creates a copy.
      * Updates the address if a new copy is created.
      */
-    setValueCOW(heap: Heap, value: unknown): void {
+    setValueCOW(heap: Heap, value: unknown, line?: number, column?: number): void {
         if (this.isConstant) {
-            throw new RuntimeError("Cannot assign to constant");
+            throw new RuntimeError("Cannot assign to constant", line, column);
         }
 
-        this.address = heap.writeCOW(this.address, value, this.type);
+        this.address = heap.writeCOW(this.address, value, this.type, line, column);
     }
 
     getAddress(): number {
@@ -174,39 +132,41 @@ export class VariableAtomFactory {
         return undefined;
     }
 
-    static validateValue(type: TypeInfo, value: unknown): void {
+    static validateValue(type: TypeInfo, value: unknown, line?: number, column?: number): void {
         if (typeof type === "string") {
             switch (type) {
                 case PseudocodeType.INTEGER:
                     if (typeof value !== "number" || !Number.isInteger(value)) {
-                        throw new RuntimeError(`Expected INTEGER, got ${typeof value}`);
+                        throw new RuntimeError(`Expected INTEGER, got ${typeof value}`, line, column);
                     }
                     break;
                 case PseudocodeType.REAL:
                     if (typeof value !== "number") {
-                        throw new RuntimeError(`Expected REAL, got ${typeof value}`);
+                        throw new RuntimeError(`Expected REAL, got ${typeof value}`, line, column);
                     }
                     break;
                 case PseudocodeType.CHAR:
                     if (typeof value !== "string" || value.length !== 1) {
                         throw new RuntimeError(
                             `Expected CHAR (single character), got ${typeof value}`,
+                            line,
+                            column,
                         );
                     }
                     break;
                 case PseudocodeType.STRING:
                     if (typeof value !== "string") {
-                        throw new RuntimeError(`Expected STRING, got ${typeof value}`);
+                        throw new RuntimeError(`Expected STRING, got ${typeof value}`, line, column);
                     }
                     break;
                 case PseudocodeType.BOOLEAN:
                     if (typeof value !== "boolean") {
-                        throw new RuntimeError(`Expected BOOLEAN, got ${typeof value}`);
+                        throw new RuntimeError(`Expected BOOLEAN, got ${typeof value}`, line, column);
                     }
                     break;
                 case PseudocodeType.DATE:
                     if (!(value instanceof Date)) {
-                        throw new RuntimeError(`Expected DATE, got ${typeof value}`);
+                        throw new RuntimeError(`Expected DATE, got ${typeof value}`, line, column);
                     }
                     break;
                 case PseudocodeType.ANY:
@@ -214,33 +174,33 @@ export class VariableAtomFactory {
             }
         } else if (typeof type === "object" && "kind" in type && type.kind === "ENUM") {
             if (typeof value !== "string" || !type.values.includes(value)) {
-                throw new RuntimeError(`Expected enum '${type.name}' value`);
+                throw new RuntimeError(`Expected enum '${type.name}' value`, line, column);
             }
         } else if (typeof type === "object" && "kind" in type && type.kind === "SET") {
             if (!(value instanceof Set)) {
-                throw new RuntimeError(`Expected SET '${type.name}'`);
+                throw new RuntimeError(`Expected SET '${type.name}'`, line, column);
             }
         } else if (typeof type === "object" && "kind" in type && type.kind === "POINTER") {
             if (typeof value !== "number" && value !== null) {
-                throw new RuntimeError(`Expected POINTER, got ${typeof value}`);
+                throw new RuntimeError(`Expected POINTER, got ${typeof value}`, line, column);
             }
         } else if (typeof type === "object" && "kind" in type && type.kind === "INFERRED") {
         } else if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
             if (typeof value !== "number") {
-                throw new RuntimeError(`Expected class '${type.name}', got ${typeof value}`);
+                throw new RuntimeError(`Expected class '${type.name}', got ${typeof value}`, line, column);
             }
         } else if (typeof type === "object" && "elementType" in type) {
             if (!Array.isArray(value)) {
-                throw new RuntimeError(`Expected ARRAY, got ${typeof value}`);
+                throw new RuntimeError(`Expected ARRAY, got ${typeof value}`, line, column);
             }
         } else if (typeof type === "object" && "fields" in type) {
             if (!isRecord(value)) {
                 throw new RuntimeError(
                     `Expected user-defined type '${type.name}', got ${typeof value}`,
+                    line,
+                    column,
                 );
             }
         }
     }
 }
-
-export { ensureNumber, ensureString, ensureBoolean, ensureDate, ensureArray, ensureSet };
