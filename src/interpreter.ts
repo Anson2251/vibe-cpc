@@ -15,7 +15,7 @@ import type { Token } from "./lexer/tokens";
 import { PseudocodeError, ErrorHandler, RuntimeError } from "./errors";
 import { InterpreterResult, toPseudocodeError } from "./result";
 import { err } from "neverthrow";
-import { DebuggerController, type DebugSnapshot } from "./runtime/debugger";
+import { DebuggerController } from "./runtime/debugger";
 
 function unescapeString(str: string) {
     const escapes: Record<string, string> = {

@@ -179,6 +179,26 @@ function isFunctionDeclarationNode(node: ASTNode): node is FunctionDeclarationNo
     return node.type === "FunctionDeclaration";
 }
 
+function isBinaryExpressionNode(node: ExpressionNode): node is BinaryExpressionNode {
+    return node.type === "BinaryExpression";
+}
+
+function isUnaryExpressionNode(node: ExpressionNode): node is UnaryExpressionNode {
+    return node.type === "UnaryExpression";
+}
+
+function isNewExpressionNode(node: ExpressionNode): node is NewExpressionNode {
+    return node.type === "NewExpression";
+}
+
+function isTypeCastNode(node: ExpressionNode): node is TypeCastNode {
+    return node.type === "TypeCast";
+}
+
+function isSetLiteralNode(node: ExpressionNode): node is SetLiteralNode {
+    return node.type === "SetLiteral";
+}
+
 function ensureNumber(value: unknown, line?: number, column?: number): number {
     if (typeof value !== "number") {
         throw new RuntimeError("Expected numeric value", line, column);
@@ -1812,38 +1832,51 @@ export class Evaluator {
 
     private expressionNeedsAsync(node: ExpressionNode): boolean {
         // Check if expression contains function calls that need async evaluation
-        // Use type assertions since TypeScript doesn't narrow types properly in switch
         switch (node.type) {
             case "CallExpression":
                 return true;
             case "BinaryExpression": {
-                const n = node as import("../parser/ast-nodes").BinaryExpressionNode;
-                return this.expressionNeedsAsync(n.left) || this.expressionNeedsAsync(n.right);
+                if (isBinaryExpressionNode(node)) {
+                    return this.expressionNeedsAsync(node.left) || this.expressionNeedsAsync(node.right);
+                }
+                return false;
             }
             case "UnaryExpression": {
-                const n = node as import("../parser/ast-nodes").UnaryExpressionNode;
-                return this.expressionNeedsAsync(n.operand);
+                if (isUnaryExpressionNode(node)) {
+                    return this.expressionNeedsAsync(node.operand);
+                }
+                return false;
             }
             case "ArrayAccess": {
-                const n = node as import("../parser/ast-nodes").ArrayAccessNode;
-                return this.expressionNeedsAsync(n.array) ||
-                    n.indices.some((idx: ExpressionNode) => this.expressionNeedsAsync(idx));
+                if (isArrayAccessNode(node)) {
+                    return this.expressionNeedsAsync(node.array) ||
+                        node.indices.some((idx: ExpressionNode) => this.expressionNeedsAsync(idx));
+                }
+                return false;
             }
             case "MemberAccess": {
-                const n = node as import("../parser/ast-nodes").MemberAccessNode;
-                return this.expressionNeedsAsync(n.object);
+                if (isMemberAccessNode(node)) {
+                    return this.expressionNeedsAsync(node.object);
+                }
+                return false;
             }
             case "NewExpression": {
-                const n = node as import("../parser/ast-nodes").NewExpressionNode;
-                return n.arguments.some((arg: ExpressionNode) => this.expressionNeedsAsync(arg));
+                if (isNewExpressionNode(node)) {
+                    return node.arguments.some((arg: ExpressionNode) => this.expressionNeedsAsync(arg));
+                }
+                return false;
             }
             case "TypeCast": {
-                const n = node as import("../parser/ast-nodes").TypeCastNode;
-                return this.expressionNeedsAsync(n.expression);
+                if (isTypeCastNode(node)) {
+                    return this.expressionNeedsAsync(node.expression);
+                }
+                return false;
             }
             case "SetLiteral": {
-                const n = node as import("../parser/ast-nodes").SetLiteralNode;
-                return n.elements.some((el: ExpressionNode) => this.expressionNeedsAsync(el));
+                if (isSetLiteralNode(node)) {
+                    return node.elements.some((el: ExpressionNode) => this.expressionNeedsAsync(el));
+                }
+                return false;
             }
             default:
                 return false;

@@ -446,6 +446,7 @@ export class Parser {
             case TokenType.RIGHT_BRACKET:
             case TokenType.COMMA:
             case TokenType.COLON:
+            case TokenType.DO:
             case TokenType.DOT:
             case TokenType.COMMENT:
             case TokenType.NEWLINE:
