@@ -108,6 +108,30 @@ export function getDefaultValue(type: TypeInfo): unknown {
     }
 
     if (typeof type === "object" && "elementType" in type) {
+        const arrayType = type as { elementType: TypeInfo; bounds: { lower: number | string; upper: number | string }[] };
+        if (arrayType.bounds && arrayType.bounds.length > 0) {
+            const firstBound = arrayType.bounds[0];
+            const lower = typeof firstBound.lower === "number" ? firstBound.lower : 1;
+            const upper = typeof firstBound.upper === "number" ? firstBound.upper : 1;
+            const size = upper - lower + 1;
+            const result: unknown[] = [];
+            // For multi-dimensional arrays, create sub-array type with remaining bounds
+            if (arrayType.bounds.length > 1) {
+                const subArrayType = {
+                    elementType: arrayType.elementType,
+                    bounds: arrayType.bounds.slice(1),
+                };
+                for (let i = 0; i < size; i++) {
+                    result.push(getDefaultValue(subArrayType));
+                }
+            } else {
+                // Single-dimensional array
+                for (let i = 0; i < size; i++) {
+                    result.push(getDefaultValue(arrayType.elementType));
+                }
+            }
+            return result;
+        }
         return [];
     }
 

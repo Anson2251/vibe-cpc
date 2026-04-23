@@ -282,6 +282,10 @@ export class Environment {
         return new Environment(this.heap, this);
     }
 
+    getParent(): Environment | undefined {
+        return this.parent;
+    }
+
     getVariables(): VariableInfo[] {
         const variables: VariableInfo[] = [];
 

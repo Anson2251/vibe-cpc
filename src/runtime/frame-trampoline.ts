@@ -2,7 +2,7 @@ import type { IOInterface } from "../io/io-interface";
 import type { ASTNode, RuntimeMethodInfo } from "../parser/ast-nodes";
 import { RuntimeError } from "../errors";
 import { FrameEvaluator } from "./frame-evaluator";
-import { FrameContext, FrameResult, FrameSyscall } from "./frame-stack";
+import { FrameContext, FrameSyscall } from "./frame-stack";
 import { Environment, ExecutionContext } from "./environment";
 import { Heap } from "./heap";
 import { IOQueue } from "./io-queue";
@@ -49,6 +49,7 @@ export class FrameTrampoline {
             heap: this.heap,
             environment: this.environment,
             context: this.context,
+            io: this.deps.io,
             ioQueue: this.ioQueue,
             fileManager: this.fileManager,
             globalRoutines: this.deps.globalRoutines,
@@ -103,7 +104,7 @@ export class FrameTrampoline {
                 }
                 return undefined;
             case "host_call":
-                return await this.handleHostCall(call, evaluator);
+                return this.handleHostCall(call, evaluator);
         }
     }
 
@@ -116,7 +117,7 @@ export class FrameTrampoline {
             if (routineInfo.isBuiltIn && routineInfo.implementation) {
                 const result = routineInfo.implementation(...args);
                 if (result instanceof Promise) {
-                    return await result;
+                    return result;
                 }
                 return result;
             }

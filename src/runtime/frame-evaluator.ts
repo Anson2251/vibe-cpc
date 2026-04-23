@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-unsafe-type-assertion
 import {
     ASTNode,
     StatementNode,
@@ -50,13 +51,16 @@ import {
 import {
     PseudocodeType,
     UserDefinedTypeInfo,
+    EnumTypeInfo,
     SetTypeInfo,
+    PointerTypeInfo,
     TypeInfo,
     ParameterMode,
     ParameterInfo,
     TypeValidator,
     ClassTypeInfo,
     ClassMethodInfo,
+    ArrayTypeInfo,
 } from "../types";
 
 import { RuntimeError, DivisionByZeroError, IndexError } from "../errors";
@@ -85,6 +89,7 @@ import {
     FrameContext,
     FrameResult,
     FrameEvaluatorDeps,
+    FrameSyscall,
 } from "./frame-stack";
 
 interface CaseNode extends StatementNode {
@@ -190,15 +195,6 @@ function ensurePseudocodeType(type: TypeInfo, line?: number, column?: number): P
     return type;
 }
 
-function getRecordField<T>(record: Record<string, T>, fieldName: string): T | undefined {
-    for (const [key, value] of Object.entries(record)) {
-        if (key === fieldName) {
-            return value;
-        }
-    }
-    return undefined;
-}
-
 function extractRoutineBody(node: ASTNode | undefined): StatementNode[] {
     if (!node || typeof node !== "object") {
         return [];
@@ -218,16 +214,17 @@ export class FrameEvaluator {
     }
 
     step(ctx: FrameContext): FrameResult {
-        if (ctx.shouldReturn) {
-            return { kind: "complete", value: ctx.returnValue };
-        }
-
         if (ctx.currentNode) {
             return this.evalNode(ctx, ctx.currentNode);
         }
 
         if (ctx.frameStack.length > 0) {
             return this.resumeFrame(ctx);
+        }
+
+        // Only complete when there's nothing left to do
+        if (ctx.shouldReturn) {
+            return { kind: "complete", value: ctx.returnValue };
         }
 
         return {
@@ -388,10 +385,19 @@ export class FrameEvaluator {
 
             case "ImportStatement":
             case "ImportExpression":
+                if (this.deps.strictMode) {
+                    throw new RuntimeError(
+                        "IMPORT is not a CAIE standard feature",
+                        node.line,
+                        node.column,
+                    );
+                }
+                ctx.currentNode = null;
+                return { kind: "continue", ctx };
             case "ExportStatement":
                 if (this.deps.strictMode) {
                     throw new RuntimeError(
-                        "IMPORT/EXPORT is not a CAIE standard feature (CAIE_ONLY mode is enabled)",
+                        "EXPORT is not a CAIE standard feature",
                         node.line,
                         node.column,
                     );
@@ -428,7 +434,20 @@ export class FrameEvaluator {
     private evalIdentifier(ctx: FrameContext, node: IdentifierNode): FrameResult {
         const env = this.currentEnv(ctx);
         if (env.has(node.name)) {
-            ctx.valueStack.push(env.get(node.name));
+            const varType = env.getType(node.name);
+            // For record types, return the heap address for member access
+            if (typeof varType === "object" && varType !== null && "fields" in varType) {
+                const atom = env.getAtom(node.name);
+                // For CLASS types, return the value (heap address of the object)
+                // For user-defined record types, return the variable's storage address
+                if ("kind" in varType && varType.kind === "CLASS") {
+                    ctx.valueStack.push(atom.getValue(this.deps.heap));
+                } else {
+                    ctx.valueStack.push(atom.getAddress());
+                }
+            } else {
+                ctx.valueStack.push(env.get(node.name));
+            }
         } else {
             for (const enumType of this.deps.enumTypes.values()) {
                 if (enumType.values.includes(node.name)) {
@@ -465,6 +484,7 @@ export class FrameEvaluator {
         ctx.frameStack.push({
             kind: "ArrayAccessIndex",
             array: node.array,
+            indexNodes: node.indices,
             indices: [],
             index: 0,
             totalIndices: node.indices.length,
@@ -480,26 +500,49 @@ export class FrameEvaluator {
     }
 
     private evalCallExpression(ctx: FrameContext, node: CallExpressionNode): FrameResult {
-        ctx.frameStack.push({
-            kind: "CallArgs",
-            callee: node.name,
-            namespace: node.namespace,
-            args: [],
-            argNodes: node.arguments,
-            index: 0,
-            totalArgs: node.arguments.length,
-            line: node.line,
-            column: node.column,
-        });
         if (node.arguments.length > 0) {
+            ctx.frameStack.push({
+                kind: "CallArgs",
+                callee: node.name,
+                namespace: node.namespace,
+                args: [],
+                argNodes: node.arguments,
+                index: 0,
+                totalArgs: node.arguments.length,
+                line: node.line,
+                column: node.column,
+            });
             ctx.currentNode = node.arguments[0];
+            return { kind: "continue", ctx };
         } else {
+            // No arguments - call directly without pushing frame
             return this.makeHostCall(ctx, node.name, node.namespace || undefined, []);
         }
-        return { kind: "continue", ctx };
     }
 
     private evalMemberAccess(ctx: FrameContext, node: MemberAccessNode): FrameResult {
+        // For simple identifiers, get the address directly instead of evaluating to value
+        if (isIdentifierNode(node.object)) {
+            const atom = this.currentEnv(ctx).getAtom(node.object.name);
+            const varType = this.currentEnv(ctx).getType(node.object.name);
+            let objAddress: number;
+            // For CLASS types, the value stored is the heap address of the object
+            if (typeof varType === "object" && varType !== null && "kind" in varType && varType.kind === "CLASS") {
+                objAddress = atom.getValue(this.deps.heap) as number;
+            } else {
+                objAddress = atom.getAddress();
+            }
+            ctx.frameStack.push({
+                kind: "MemberAccess",
+                object: node.object,
+                field: node.field,
+                line: node.line,
+                column: node.column,
+            });
+            ctx.valueStack.push(objAddress);
+            ctx.currentNode = null;
+            return { kind: "continue", ctx };
+        }
         ctx.frameStack.push({
             kind: "MemberAccess",
             object: node.object,
@@ -516,6 +559,7 @@ export class FrameEvaluator {
             kind: "NewExpressionArgs",
             className: node.className,
             args: [],
+            argNodes: node.arguments,
             index: 0,
             totalArgs: node.arguments.length,
             line: node.line,
@@ -612,15 +656,100 @@ export class FrameEvaluator {
             resolvedType = this.resolveType(node.dataType, node.line, node.column);
         }
 
-        const finalValue =
-            initialValue ?? this.getDefaultValue(resolvedType, node.line, node.column);
+        let finalValue: unknown;
+        if (initialValue !== undefined) {
+            finalValue = initialValue;
+        } else if (
+            typeof resolvedType === "object" &&
+            resolvedType !== null &&
+            "elementType" in resolvedType &&
+            "bounds" in resolvedType
+        ) {
+            finalValue = this.allocateArrayWithVariableBounds(ctx, resolvedType as ArrayTypeInfo);
+        } else {
+            finalValue = this.getDefaultValue(resolvedType, node.line, node.column);
+        }
 
         this.currentEnv(ctx).define(node.name, resolvedType, finalValue, node.isConstant);
         ctx.currentNode = null;
         return { kind: "continue", ctx };
     }
 
+    private allocateArrayWithVariableBounds(ctx: FrameContext, arrayType: ArrayTypeInfo): number {
+        const env = this.currentEnv(ctx);
+        const resolvedBounds = arrayType.bounds.map((bound) => {
+            const lower = typeof bound.lower === "string" ? this.evalSyncVariable(bound.lower, env) : bound.lower;
+            const upper = typeof bound.upper === "string" ? this.evalSyncVariable(bound.upper, env) : bound.upper;
+            return { lower: lower as number, upper: upper as number };
+        });
+
+        const firstBoundSize = resolvedBounds[0].upper - resolvedBounds[0].lower + 1;
+
+        if (arrayType.bounds.length > 1) {
+            const subArrayType: ArrayTypeInfo = {
+                elementType: arrayType.elementType,
+                bounds: resolvedBounds.slice(1).map((b) => ({ lower: b.lower, upper: b.upper })),
+            };
+            const addresses: number[] = [];
+            for (let i = 0; i < firstBoundSize; i++) {
+                const subArrayAddr = this.allocateArrayWithVariableBounds(ctx, subArrayType);
+                addresses.push(subArrayAddr);
+            }
+            return this.deps.heap.allocate(addresses, arrayType, true, false);
+        }
+
+        const elementType = arrayType.elementType;
+        const addresses: number[] = [];
+        for (let i = 0; i < firstBoundSize; i++) {
+            const defaultValue = this.getDefaultValue(elementType, 0, 0);
+            const addr = this.deps.heap.allocate(defaultValue, elementType, true, false);
+            addresses.push(addr);
+        }
+        return this.deps.heap.allocate(addresses, arrayType, true, false);
+    }
+
+    private allocateArray(ctx: FrameContext, arrayType: ArrayTypeInfo): number {
+        return this.allocateArrayWithVariableBounds(ctx, arrayType);
+    }
+
+    private evalSyncVariable(name: string, env: Environment): number {
+        const value = env.get(name);
+        if (typeof value !== "number" || !Number.isInteger(value)) {
+            throw new RuntimeError(`Array bound variable '${name}' must be an integer`);
+        }
+        return value;
+    }
+
     private evalAssignment(ctx: FrameContext, node: AssignmentNode): FrameResult {
+        // Pre-check: if target is an enum variable and value is an undefined identifier,
+        // produce a better error message
+        if (isIdentifierNode(node.target) && isIdentifierNode(node.value)) {
+            const env = this.currentEnv(ctx);
+            const varType = env.getType(node.target.name);
+            if (
+                typeof varType === "object" &&
+                varType !== null &&
+                "kind" in varType &&
+                varType.kind === "ENUM" &&
+                !env.has(node.value.name)
+            ) {
+                let isEnumValue = false;
+                for (const enumType of this.deps.enumTypes.values()) {
+                    if (enumType.values.includes(node.value.name)) {
+                        isEnumValue = true;
+                        break;
+                    }
+                }
+                if (!isEnumValue) {
+                    const enumType = varType as EnumTypeInfo;
+                    throw new RuntimeError(
+                        `Expected enum '${enumType.name}' value`,
+                        node.line,
+                        node.column,
+                    );
+                }
+            }
+        }
         ctx.frameStack.push({
             kind: "AssignmentValue",
             target: node,
@@ -1046,26 +1175,77 @@ export class FrameEvaluator {
     }
 
     private evalTypeDeclaration(ctx: FrameContext, node: TypeDeclarationNode): FrameResult {
-        const fields: Record<string, TypeInfo> = {};
-        for (const field of node.fields) {
-            fields[field.name] = this.resolveType(field.dataType, node.line, node.column);
+        if (node.enumValues && node.enumValues.length > 0) {
+            const enumType: EnumTypeInfo = {
+                kind: "ENUM",
+                name: node.name,
+                values: node.enumValues,
+            };
+            this.deps.enumTypes.set(node.name, enumType);
+        } else if (node.setElementType) {
+            // Handle set type declaration: TYPE TLetterSet = SET OF CHAR
+            const setType: SetTypeInfo = {
+                kind: "SET",
+                name: node.name,
+                elementType: node.setElementType,
+            };
+            this.deps.setTypes.set(node.name, setType);
+        } else if (node.pointerType) {
+            // Handle pointer type declaration: TYPE PInteger = ^INTEGER
+            const resolvedPointedType = this.resolveType(node.pointerType, node.line, node.column);
+            const pointerType: PointerTypeInfo = {
+                kind: "POINTER",
+                name: node.name,
+                pointedType: resolvedPointedType,
+            };
+            this.deps.pointerTypes.set(node.name, pointerType);
+        } else {
+            const fields: Record<string, TypeInfo> = {};
+            for (const field of node.fields) {
+                fields[field.name] = this.resolveType(field.dataType, node.line, node.column);
+            }
+            const typeInfo: UserDefinedTypeInfo = {
+                name: node.name,
+                fields,
+            };
+            this.deps.userDefinedTypes.set(node.name, typeInfo);
         }
-        const typeInfo: UserDefinedTypeInfo = {
-            name: node.name,
-            fields,
-        };
-        this.deps.userDefinedTypes.set(node.name, typeInfo);
         ctx.currentNode = null;
         return { kind: "continue", ctx };
     }
 
     private evalSetDeclaration(ctx: FrameContext, node: SetDeclarationNode): FrameResult {
-        const setType: SetTypeInfo = {
-            kind: "SET",
-            name: node.name,
-            elementType: node.setTypeName as PseudocodeType,
-        };
-        this.deps.setTypes.set(node.name, setType);
+        // Look up the set type by name (e.g., "LetterSet")
+        const setTypeInfo = this.deps.setTypes.get(node.setTypeName);
+        if (!setTypeInfo) {
+            throw new RuntimeError(`Unknown set type '${node.setTypeName}'`, node.line, node.column);
+        }
+
+        // Evaluate values and validate element types
+        const values: unknown[] = [];
+        for (const expr of node.values) {
+            const value = this.evalSync(expr, ctx);
+            // Validate element type
+            if (setTypeInfo.elementType === PseudocodeType.INTEGER && typeof value !== "number") {
+                throw new RuntimeError(
+                    `Expected ${setTypeInfo.elementType}`,
+                    node.line,
+                    node.column,
+                );
+            }
+            if (setTypeInfo.elementType === PseudocodeType.CHAR && typeof value !== "string") {
+                throw new RuntimeError(
+                    `Expected ${setTypeInfo.elementType}`,
+                    node.line,
+                    node.column,
+                );
+            }
+            values.push(value);
+        }
+
+        // Create the set and define the variable
+        const setValue = new Set(values);
+        this.currentEnv(ctx).define(node.name, setTypeInfo, setValue, true);
         ctx.currentNode = null;
         return { kind: "continue", ctx };
     }
@@ -1250,6 +1430,7 @@ export class FrameEvaluator {
                     }
                     return { kind: "continue", ctx };
                 } else {
+                    ctx.pendingArgNodes = frame.argNodes;
                     return this.makeHostCall(ctx, frame.callee, frame.namespace, frame.args);
                 }
             }
@@ -1262,9 +1443,9 @@ export class FrameEvaluator {
                 if (frame.index + 1 < frame.totalIndices) {
                     frame.index++;
                     ctx.frameStack.push(frame);
-                    const arrayNode = frame.array;
-                    if (isArrayAccessNode(arrayNode) && arrayNode.indices[frame.index]) {
-                        ctx.currentNode = arrayNode.indices[frame.index];
+                    // Use stored indexNodes to get the next index expression
+                    if (frame.indexNodes[frame.index]) {
+                        ctx.currentNode = frame.indexNodes[frame.index];
                     }
                     return { kind: "continue", ctx };
                 } else {
@@ -1287,7 +1468,15 @@ export class FrameEvaluator {
                 }
                 this.checkFieldVisibility(objAddress, frame.field, frame.line, frame.column);
                 const fieldAddr = this.deps.heap.readFieldAddressUnsafe(objAddress, frame.field);
-                ctx.valueStack.push(this.deps.heap.readUnsafe(fieldAddr).value);
+                const fieldValue = this.deps.heap.readUnsafe(fieldAddr);
+                // If the field is a record/object, return its address for chained access
+                if (typeof fieldValue.type === "object" &&
+                    fieldValue.type !== null &&
+                    "fields" in fieldValue.type) {
+                    ctx.valueStack.push(fieldAddr);
+                } else {
+                    ctx.valueStack.push(fieldValue.value);
+                }
                 ctx.currentNode = null;
                 return { kind: "continue", ctx };
             }
@@ -1299,9 +1488,8 @@ export class FrameEvaluator {
                 if (frame.index + 1 < frame.totalArgs) {
                     frame.index++;
                     ctx.frameStack.push(frame);
-                    const newExpr = this.findNewExpressionNode(ctx, frame.className);
-                    if (newExpr && newExpr.arguments[frame.index]) {
-                        ctx.currentNode = newExpr.arguments[frame.index];
+                    if (frame.argNodes[frame.index]) {
+                        ctx.currentNode = frame.argNodes[frame.index];
                     }
                     return { kind: "continue", ctx };
                 } else {
@@ -1338,9 +1526,17 @@ export class FrameEvaluator {
                     throw new RuntimeError("Cannot dereference non-pointer", ctx.currentLine, ctx.currentColumn);
                 }
                 if (ptrValue === NULL_POINTER) {
-                    throw new RuntimeError("Cannot dereference NULL pointer", ctx.currentLine, ctx.currentColumn);
+                    throw new RuntimeError("Null pointer dereference", ctx.currentLine, ctx.currentColumn);
                 }
-                ctx.valueStack.push(this.deps.heap.readUnsafe(ptrValue).value);
+                const pointedObj = this.deps.heap.readUnsafe(ptrValue);
+                // If pointing to a record/object, return the address for member access
+                if (typeof pointedObj.type === "object" &&
+                    pointedObj.type !== null &&
+                    ("fields" in pointedObj.type || "kind" in pointedObj.type)) {
+                    ctx.valueStack.push(ptrValue);
+                } else {
+                    ctx.valueStack.push(pointedObj.value);
+                }
                 ctx.currentNode = null;
                 return { kind: "continue", ctx };
             }
@@ -1589,6 +1785,11 @@ export class FrameEvaluator {
             case "SeqStatement": {
                 // This frame was pushed before executing statements[frame.index]
                 // After statements[frame.index] completes, we end up here
+                // Check if we should return early (from RETURN statement)
+                if (ctx.shouldReturn) {
+                    ctx.currentNode = null;
+                    return { kind: "continue", ctx };
+                }
                 // Now move to the next statement if available
                 const nextIndex = frame.index + 1;
                 if (nextIndex < frame.statements.length) {
@@ -1600,6 +1801,33 @@ export class FrameEvaluator {
                     return { kind: "continue", ctx };
                 }
                 ctx.currentNode = null;
+                return { kind: "continue", ctx };
+            }
+
+            case "ReturnFromCall": {
+                // Restore return value
+                const returnValue = ctx.shouldReturn ? ctx.returnValue : undefined;
+
+                // Restore environment stack (pop routine environment)
+                ctx.envStack.pop();
+
+                // Pop call stack
+                ctx.callStack.pop();
+
+                // Dispose routine environment
+                frame.routineEnv.disposeScope();
+
+                // Restore context state
+                ctx.valueStack = [...frame.savedContext.valueStack, returnValue];
+                ctx.frameStack = [...frame.savedContext.frameStack];
+                ctx.callStack = [...frame.savedContext.callStack];
+                // currentNode should be null since the call statement has completed
+                ctx.currentNode = null;
+                ctx.currentLine = frame.savedContext.currentLine;
+                ctx.currentColumn = frame.savedContext.currentColumn;
+                ctx.shouldReturn = frame.savedContext.shouldReturn;
+                ctx.returnValue = frame.savedContext.returnValue;
+
                 return { kind: "continue", ctx };
             }
 
@@ -1728,9 +1956,22 @@ export class FrameEvaluator {
             }
 
             ctx.currentNode = statements[index];
-            const result = this.evalNode(ctx, statements[index]);
+            let result = this.evalNode(ctx, statements[index]);
+
+            // Handle async execution within the statement (e.g., Assignment, Call)
+            while (result.kind === "continue") {
+                if (result.ctx.currentNode) {
+                    result = this.evalNode(result.ctx, result.ctx.currentNode);
+                } else if (result.ctx.frameStack.length > 0) {
+                    result = this.resumeFrame(result.ctx);
+                } else {
+                    break;
+                }
+            }
 
             if (result.kind === "continue") {
+                // Update ctx to the result context for the next iteration
+                ctx = result.ctx;
                 return runSeq(index + 1);
             }
 
@@ -1850,6 +2091,7 @@ export class FrameEvaluator {
 
         for (let i = 0; i < signature.parameters.length; i++) {
             const param = signature.parameters[i];
+            const resolvedParamType = this.resolveType(param.type, ctx.currentLine, ctx.currentColumn);
 
             if (param.mode === ParameterMode.BY_REFERENCE) {
                 const argNode = this.findArgNodeForParam(ctx, routineName, i);
@@ -1863,10 +2105,10 @@ export class FrameEvaluator {
 
                 if (isIdentifierNode(argNode)) {
                     const callerAtom = this.currentEnv(ctx).getAtom(argNode.name);
-                    routineEnvironment.defineByRef(param.name, param.type, callerAtom.getAddress());
+                    routineEnvironment.defineByRef(param.name, resolvedParamType, callerAtom.getAddress());
                 } else if (isArrayAccessNode(argNode) || isMemberAccessNode(argNode)) {
                     const address = this.resolveTargetAddress(argNode, ctx);
-                    routineEnvironment.defineByRef(param.name, param.type, address);
+                    routineEnvironment.defineByRef(param.name, resolvedParamType, address);
                 } else {
                     throw new RuntimeError(
                         `BYREF parameter '${param.name}' requires a variable, array element, or record field argument`,
@@ -1875,30 +2117,36 @@ export class FrameEvaluator {
                     );
                 }
             } else {
-                const arg = args[i] ?? this.getDefaultValue(param.type, ctx.currentLine, ctx.currentColumn);
+                const arg = args[i] ?? this.getDefaultValue(resolvedParamType, ctx.currentLine, ctx.currentColumn);
                 const fromHeap =
-                    typeof param.type === "object" &&
-                    param.type !== null &&
-                    ("elementType" in param.type || "fields" in param.type);
-                routineEnvironment.define(param.name, param.type, arg, false, fromHeap);
+                    typeof resolvedParamType === "object" &&
+                    resolvedParamType !== null &&
+                    ("elementType" in resolvedParamType || "fields" in resolvedParamType);
+                routineEnvironment.define(param.name, resolvedParamType, arg, false, fromHeap);
             }
         }
 
         const savedEnv = this.currentEnv(ctx);
+        const savedContext: Omit<FrameContext, "envStack"> = {
+            valueStack: [...ctx.valueStack],
+            frameStack: [...ctx.frameStack],
+            callStack: [...ctx.callStack],
+            currentNode: ctx.currentNode,
+            currentLine: ctx.currentLine,
+            currentColumn: ctx.currentColumn,
+            shouldReturn: ctx.shouldReturn,
+            returnValue: ctx.returnValue,
+        };
 
-        const returnAddress =
-            ctx.currentLine !== undefined && ctx.currentColumn !== undefined
-                ? { line: ctx.currentLine, column: ctx.currentColumn }
-                : undefined;
-
-        ctx.callStack = [...ctx.callStack];
         ctx.callStack.push({
             routineName,
             environment: savedEnv,
-            returnAddress,
+            returnAddress: ctx.currentLine !== undefined && ctx.currentColumn !== undefined
+                ? { line: ctx.currentLine, column: ctx.currentColumn }
+                : undefined,
         });
 
-        ctx.envStack = [...ctx.envStack, routineEnvironment];
+        ctx.envStack.push(routineEnvironment);
         ctx.shouldReturn = false;
         ctx.returnValue = undefined;
 
@@ -1906,7 +2154,7 @@ export class FrameEvaluator {
         const bodyStatements = extractRoutineBody(routineInfo?.node);
 
         if (bodyStatements.length === 0) {
-            ctx.envStack = ctx.envStack.slice(0, -1);
+            ctx.envStack.pop();
             ctx.callStack.pop();
             routineEnvironment.disposeScope();
             ctx.valueStack.push(undefined);
@@ -1914,19 +2162,23 @@ export class FrameEvaluator {
             return { kind: "continue", ctx };
         }
 
-        return this.evalStatementSeqWithAfter(
-            ctx,
-            bodyStatements,
-            () => {
-                const returnValue = ctx.shouldReturn ? ctx.returnValue : undefined;
-                ctx.envStack = ctx.envStack.slice(0, -1);
-                ctx.callStack.pop();
-                routineEnvironment.disposeScope();
-                ctx.valueStack.push(returnValue);
-                ctx.currentNode = null;
-                return { kind: "continue", ctx };
-            },
-        );
+        // Push ReturnFromCall frame to handle cleanup after body execution
+        ctx.frameStack.push({
+            kind: "ReturnFromCall",
+            savedEnv,
+            savedContext,
+            routineEnv: routineEnvironment,
+        });
+
+        // Push SeqStatement frame to execute body
+        ctx.frameStack.push({
+            kind: "SeqStatement",
+            statements: bodyStatements,
+            index: 0,
+        });
+
+        ctx.currentNode = bodyStatements[0];
+        return { kind: "continue", ctx };
     }
 
     private createNewObject(ctx: FrameContext, className: string, args: unknown[]): FrameResult {
@@ -1960,17 +2212,11 @@ export class FrameEvaluator {
 
             const methodBody = this.findMethodBody(className, "NEW");
             if (methodBody && methodBody.body) {
-                return this.evalStatementSeqWithAfter(
-                    ctx,
-                    methodBody.body,
-                    () => {
-                        ctx.envStack = ctx.envStack.slice(0, -1);
-                        routineEnvironment.disposeScope();
-                        ctx.valueStack.push(address);
-                        ctx.currentNode = null;
-                        return { kind: "continue", ctx };
-                    },
-                );
+                for (const statement of methodBody.body) {
+                    this.evalStatementSync(statement, ctx);
+                }
+                ctx.envStack = ctx.envStack.slice(0, -1);
+                routineEnvironment.disposeScope();
             }
         }
 
@@ -2094,6 +2340,15 @@ export class FrameEvaluator {
     private resolveTargetAddress(node: ExpressionNode, ctx: FrameContext): number {
         if (isIdentifierNode(node)) {
             const atom = this.currentEnv(ctx).getAtom(node.name);
+            const varType = this.currentEnv(ctx).getType(node.name);
+            // For pointer types, return the pointer value (address pointed to), not the variable address
+            if (typeof varType === "object" && varType !== null && "kind" in varType && varType.kind === "POINTER") {
+                const ptrValue = atom.getValue(this.deps.heap);
+                if (typeof ptrValue !== "number") {
+                    throw new RuntimeError("Cannot dereference non-pointer", node.line, node.column);
+                }
+                return ptrValue;
+            }
             return atom.getAddress();
         }
 
@@ -2154,20 +2409,59 @@ export class FrameEvaluator {
     private resolveMemberAccessAddress(node: MemberAccessNode, ctx: FrameContext): number {
         if (isIdentifierNode(node.object)) {
             const atom = this.currentEnv(ctx).getAtom(node.object.name);
+            const varType = this.currentEnv(ctx).getType(node.object.name);
+            // For CLASS types, the value stored is the heap address of the object
+            if (typeof varType === "object" && varType !== null && "kind" in varType && varType.kind === "CLASS") {
+                return atom.getValue(this.deps.heap) as number;
+            }
             return atom.getAddress();
         }
         if (isMemberAccessNode(node.object)) {
-            return this.resolveMemberAccessAddress(node.object, ctx);
+            // For nested member access like obj.Inner.Value
+            // First get the parent record address (obj.Inner)
+            const parentAddress = this.resolveMemberAccessAddress(node.object, ctx);
+            // Then get the field address (Inner) from the parent record
+            return this.deps.heap.readFieldAddressUnsafe(parentAddress, node.object.field);
         }
         if (isArrayAccessNode(node.object)) {
             return this.resolveTargetAddress(node.object, ctx);
+        }
+        if (isPointerDereferenceNode(node.object)) {
+            // p^.field - evaluate the pointer to get the record address
+            const ptrValue = this.evalSync(node.object.pointer, ctx);
+            if (typeof ptrValue !== "number") {
+                throw new RuntimeError("Cannot dereference non-pointer", node.line, node.column);
+            }
+            return ptrValue;
         }
         throw new RuntimeError("Cannot resolve member access address", node.line, node.column);
     }
 
     private performAssignment(node: AssignmentNode, value: unknown, ctx: FrameContext): void {
         if (isIdentifierNode(node.target)) {
-            this.currentEnv(ctx).assign(node.target.name, value);
+            const varType = this.currentEnv(ctx).getType(node.target.name);
+            let finalValue = value;
+            // Validate enum assignment
+            if (typeof varType === "object" && varType !== null && "kind" in varType && varType.kind === "ENUM") {
+                const enumType = varType as EnumTypeInfo;
+                if (typeof value === "string" && !enumType.values.includes(value)) {
+                    throw new RuntimeError(
+                        `Expected enum '${enumType.name}' value`,
+                        node.line,
+                        node.column,
+                    );
+                }
+            }
+            if (typeof varType === "object" && varType !== null && "fields" in varType) {
+                // For user-defined record types, read the heap value
+                // For CLASS types, keep the heap address
+                const isClassType = "kind" in varType && varType.kind === "CLASS";
+                if (!isClassType && typeof value === "number") {
+                    const srcObj = this.deps.heap.readUnsafe(value);
+                    finalValue = srcObj.value;
+                }
+            }
+            this.currentEnv(ctx).assign(node.target.name, finalValue);
         } else if (isArrayAccessNode(node.target)) {
             const address = this.resolveTargetAddress(node.target, ctx);
 
@@ -2188,10 +2482,20 @@ export class FrameEvaluator {
         } else if (isMemberAccessNode(node.target)) {
             const memberAccess = node.target;
             const parentAddress = this.resolveMemberAccessAddress(memberAccess, ctx);
+            this.checkFieldVisibility(parentAddress, memberAccess.field, node.line, node.column);
             const fieldAddr = this.deps.heap.readFieldAddressUnsafe(parentAddress, memberAccess.field);
             const fieldObj = this.deps.heap.readUnsafe(fieldAddr);
             VariableAtomFactory.validateValue(fieldObj.type, value);
             this.deps.heap.writeUnsafe(fieldAddr, value, fieldObj.type);
+        } else if (isPointerDereferenceNode(node.target)) {
+            // p^ <- value or ptrs[i]^ <- value
+            const ptrValue = this.evalSync(node.target.pointer, ctx);
+            if (typeof ptrValue !== "number") {
+                throw new RuntimeError("Cannot dereference non-pointer", node.line, node.column);
+            }
+            const pointedObj = this.deps.heap.readUnsafe(ptrValue);
+            VariableAtomFactory.validateValue(pointedObj.type, value);
+            this.deps.heap.writeUnsafe(ptrValue, value, pointedObj.type);
         } else {
             throw new RuntimeError("Invalid assignment target", node.line, node.column);
         }
@@ -2199,8 +2503,19 @@ export class FrameEvaluator {
 
     private performVariableDeclaration(ctx: FrameContext, node: VariableDeclarationNode, initialValue: unknown | undefined): FrameResult {
         const resolvedType = this.resolveType(node.dataType, node.line, node.column);
-        const finalValue =
-            initialValue ?? this.getDefaultValue(resolvedType, node.line, node.column);
+        let finalValue: unknown;
+        if (initialValue !== undefined) {
+            finalValue = initialValue;
+        } else if (
+            typeof resolvedType === "object" &&
+            resolvedType !== null &&
+            "elementType" in resolvedType &&
+            "bounds" in resolvedType
+        ) {
+            finalValue = this.allocateArray(ctx, resolvedType as ArrayTypeInfo);
+        } else {
+            finalValue = this.getDefaultValue(resolvedType, node.line, node.column);
+        }
 
         this.currentEnv(ctx).define(node.name, resolvedType, finalValue, node.isConstant);
         ctx.currentNode = null;
@@ -2314,7 +2629,15 @@ export class FrameEvaluator {
         }
 
         const elemAddr = this.deps.heap.readElementAddressUnsafe(currentAddress, indices[indices.length - 1]);
-        ctx.valueStack.push(this.deps.heap.readUnsafe(elemAddr).value);
+        const elemValue = this.deps.heap.readUnsafe(elemAddr);
+        // If element is a record/object, return its address for chained access
+        if (typeof elemValue.type === "object" &&
+            elemValue.type !== null &&
+            "fields" in elemValue.type) {
+            ctx.valueStack.push(elemAddr);
+        } else {
+            ctx.valueStack.push(elemValue.value);
+        }
         ctx.currentNode = null;
         return { kind: "continue", ctx };
     }
@@ -2391,6 +2714,10 @@ export class FrameEvaluator {
         ctx.envStack = ctx.envStack.slice(0, -1);
         routineEnvironment.disposeScope();
 
+        // Reset shouldReturn so it doesn't affect subsequent method calls
+        ctx.shouldReturn = false;
+        ctx.returnValue = undefined;
+
         return { handled: true, value: result };
     }
 
@@ -2412,12 +2739,56 @@ export class FrameEvaluator {
                 break;
             }
         }
+        // Handle syscall (e.g., Output) by executing it directly
+        if (result.kind === "syscall") {
+            this.executeSyscall(result.call);
+        }
+        // Sync state back to parent context
+        ctx.shouldReturn = tempCtx.shouldReturn;
+        ctx.returnValue = tempCtx.returnValue;
+        ctx.envStack = tempCtx.envStack;
+    }
+
+    private executeSyscall(call: FrameSyscall): void {
+        switch (call.type) {
+            case "io_output":
+                this.deps.io.output(call.data);
+                break;
+            case "io_input":
+                // Input is handled by the trampoline
+                break;
+            case "host_call":
+                // Host calls are handled by the trampoline
+                break;
+            case "file_op":
+                // File operations are handled by the trampoline
+                break;
+            case "debug_pause":
+                // Debug pause is handled by the trampoline
+                break;
+            default:
+                break;
+        }
     }
 
     private evaluateTypeof(ctx: FrameContext, args: unknown[]): string {
         if (args.length === 0) {
             throw new RuntimeError("TYPEOF expects an argument", ctx.currentLine, ctx.currentColumn);
         }
+
+        // Try to get the type from the argument node for accurate type information
+        if (ctx.pendingArgNodes && ctx.pendingArgNodes.length > 0) {
+            const argNode = ctx.pendingArgNodes[0];
+            if (isIdentifierNode(argNode)) {
+                try {
+                    const varType = this.currentEnv(ctx).getType(argNode.name);
+                    return TypeValidator.typeInfoToName(varType);
+                } catch {
+                    // Fall through to value-based inference
+                }
+            }
+        }
+
         const value = args[0];
         return TypeValidator.typeInfoToName(this.inferTypeFromValue(value));
     }
@@ -2485,7 +2856,41 @@ export class FrameEvaluator {
         return result;
     }
 
-    private checkFieldVisibility(_address: number, _field: string, _line?: number, _column?: number): void {
+    private checkFieldVisibility(address: number, field: string, line?: number, column?: number): void {
+        const obj = this.deps.heap.readUnsafe(address);
+        const classType = obj.type as ClassTypeInfo;
+        if (!classType || classType.kind !== "CLASS") {
+            return;
+        }
+
+        const visibility = classType.fieldVisibility?.[field];
+        if (visibility === "PRIVATE") {
+            // Check if we're inside a method by looking for SELF in the environment
+            const isInMethod = this.isInsideMethod(address);
+            if (!isInMethod) {
+                throw new RuntimeError(`Cannot access private field '${field}'`, line, column);
+            }
+        }
+    }
+
+    private isInsideMethod(selfAddress: number): boolean {
+        try {
+            const currentEnv = this.currentEnv({} as FrameContext);
+            // Check if SELF is defined in current or parent environment
+            let env: Environment | undefined = currentEnv;
+            while (env) {
+                if (env.has("SELF")) {
+                    const selfValue = env.get("SELF");
+                    if (selfValue === selfAddress) {
+                        return true;
+                    }
+                }
+                env = env.getParent();
+            }
+            return false;
+        } catch {
+            return false;
+        }
     }
 
     private performTypeCast(value: unknown, _targetType: TypeInfo, _line?: number, _column?: number): unknown {
@@ -2501,6 +2906,15 @@ export class FrameEvaluator {
     }
 
     private findArgNodeForParam(ctx: FrameContext, routineName: string, paramIndex: number): ExpressionNode | null {
+        for (let i = ctx.frameStack.length - 1; i >= 0; i--) {
+            const frame = ctx.frameStack[i];
+            if (frame.kind === "CallArgs" && (frame as any).callee === routineName && paramIndex < (frame as any).totalArgs) {
+                return (frame as any).argNodes[paramIndex];
+            }
+        }
+        if (ctx.pendingArgNodes && paramIndex < ctx.pendingArgNodes.length) {
+            return ctx.pendingArgNodes[paramIndex];
+        }
         return null;
     }
 }

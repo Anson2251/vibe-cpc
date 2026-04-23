@@ -128,7 +128,9 @@ export class Heap {
             throw new RuntimeError("Cannot modify constant");
         }
 
-        obj.value = this.deepCopyValue(value, type, true);
+        // For record types, value is a record object (not from heap), so fromHeap should be false
+        const fromHeap = typeof value === "number" && this.memory.has(value);
+        obj.value = this.deepCopyValue(value, type, fromHeap);
     }
 
     incrementRef(address: number): void {
@@ -220,6 +222,10 @@ export class Heap {
             throw new RuntimeError("Record access on non-record value");
         }
 
+        if (!(field in recordValue)) {
+            throw new RuntimeError(`Unknown field '${field}'`);
+        }
+
         const fieldAddress = recordValue[field];
         if (typeof fieldAddress !== "number") {
             throw new RuntimeError(`Invalid field address for '${field}'`);
@@ -254,7 +260,8 @@ export class Heap {
             throw new RuntimeError("Cannot modify constant");
         }
 
-        obj.value = this.deepCopyValue(value, type, true);
+        const fromHeap = typeof value === "number" && this.memory.has(value);
+        obj.value = this.deepCopyValue(value, type, fromHeap);
     }
 
     readElementAddressUnsafe(arrayAddress: number, index: number): number {
@@ -283,6 +290,10 @@ export class Heap {
         const recordValue = obj.value;
         if (!isRecord(recordValue)) {
             throw new RuntimeError("Record access on non-record value");
+        }
+
+        if (!(field in recordValue)) {
+            throw new RuntimeError(`Unknown field '${field}'`);
         }
 
         const fieldAddress = recordValue[field];
@@ -318,6 +329,9 @@ export class Heap {
         }
 
         if (typeof type === "object" && "kind" in type && type.kind === "CLASS") {
+            if (isRecord(value)) {
+                return this.deepCopyRecord(value, type as UserDefinedTypeInfo, fromHeap);
+            }
             return value;
         }
 
@@ -325,12 +339,26 @@ export class Heap {
             if (Array.isArray(value)) {
                 return this.deepCopyArray(value, type, fromHeap);
             }
+            // If value is a heap address (for array variables), read and copy the array
+            if (typeof value === "number" && this.memory.has(value)) {
+                const srcObj = this.memory.get(value)!;
+                if (Array.isArray(srcObj.value)) {
+                    return this.deepCopyArray(srcObj.value, type, true);
+                }
+            }
             return value;
         }
 
         if (typeof type === "object" && "fields" in type) {
             if (isRecord(value)) {
                 return this.deepCopyRecord(value, type, fromHeap);
+            }
+            // If value is a heap address (for record variables), read and copy the record
+            if (typeof value === "number" && this.memory.has(value)) {
+                const srcObj = this.memory.get(value)!;
+                if (isRecord(srcObj.value)) {
+                    return this.deepCopyRecord(srcObj.value, type, true);
+                }
             }
             return value;
         }
@@ -355,16 +383,33 @@ export class Heap {
                     );
                     return newAddr;
                 }
+                // Handle nested arrays (multi-dimensional arrays created by getDefaultValue)
+                if (Array.isArray(element)) {
+                    const copiedSubArray = this.deepCopyArray(element, subArrayType, fromHeap);
+                    const newAddr = this.allocate(copiedSubArray, subArrayType);
+                    return newAddr;
+                }
                 const newAddr = this.allocate(element, subArrayType);
                 return newAddr;
             });
         }
 
         return array.map((element) => {
-            if (fromHeap && typeof element === "number" && this.memory.has(element)) {
+            if (typeof element === "number" && this.memory.has(element)) {
                 const srcObj = this.memory.get(element)!;
-                const newAddr = this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
-                return newAddr;
+                // If element is a record/object in heap, deep copy it
+                if (typeof srcObj.type === "object" && srcObj.type !== null && "fields" in srcObj.type) {
+                    const recordValue = srcObj.value;
+                    if (isRecord(recordValue)) {
+                        const copiedRecord = this.deepCopyRecord(recordValue, srcObj.type as UserDefinedTypeInfo, true);
+                        const newAddr = this.allocate(copiedRecord, srcObj.type, srcObj.isMutable, false);
+                        return newAddr;
+                    }
+                }
+                if (fromHeap) {
+                    const newAddr = this.allocate(srcObj.value, srcObj.type, srcObj.isMutable, true);
+                    return newAddr;
+                }
             }
             const newAddr = this.allocate(element, type.elementType);
             return newAddr;
@@ -380,16 +425,30 @@ export class Heap {
         for (const [fieldName, fieldType] of Object.entries(type.fields)) {
             if (fieldName in record) {
                 const fieldValue = record[fieldName];
-                if (fromHeap && typeof fieldValue === "number" && this.memory.has(fieldValue)) {
-                    const srcObj = this.memory.get(fieldValue)!;
-                    const newAddr = this.allocate(
-                        srcObj.value,
-                        srcObj.type,
-                        srcObj.isMutable,
-                        true,
-                    );
-                    copy[fieldName] = newAddr;
+                // Check if fieldValue is a heap address (for record fields)
+                if (typeof fieldValue === "number" && this.memory.has(fieldValue)) {
+                    const fieldObj = this.memory.get(fieldValue)!;
+                    if (typeof fieldObj.type === "object" && fieldObj.type !== null && "fields" in fieldObj.type) {
+                        // Nested record - recursively copy
+                        if (isRecord(fieldObj.value)) {
+                            const copiedNested = this.deepCopyRecord(fieldObj.value, fieldObj.type as UserDefinedTypeInfo, true);
+                            const newAddr = this.allocate(copiedNested, fieldObj.type, fieldObj.isMutable, false);
+                            copy[fieldName] = newAddr;
+                        } else {
+                            copy[fieldName] = fieldValue;
+                        }
+                    } else {
+                        // Simple field - copy the actual value (not the address)
+                        const newAddr = this.allocate(
+                            fieldObj.value,
+                            fieldObj.type,
+                            fieldObj.isMutable,
+                            true,
+                        );
+                        copy[fieldName] = newAddr;
+                    }
                 } else {
+                    // Field value is not a heap address, allocate it directly
                     const newAddr = this.allocate(fieldValue, fieldType);
                     copy[fieldName] = newAddr;
                 }
@@ -456,11 +515,14 @@ export class Heap {
         }
 
         if (typeof type === "object" && "fields" in type) {
+            // For record types, allocate on heap and return address
             const result: Record<string, unknown> = {};
             for (const [fieldName, fieldType] of Object.entries(type.fields)) {
                 result[fieldName] = this.getDefaultValue(fieldType);
             }
-            return result;
+            // Allocate the record object on heap and return its address
+            const address = this.allocate(result, type, true, false);
+            return address;
         }
 
         return undefined;

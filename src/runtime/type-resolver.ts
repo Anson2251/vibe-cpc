@@ -153,24 +153,24 @@ export function resolveType(
         };
     }
 
-    const lookupName = type.name.toUpperCase();
+    const lookupName = type.name;
     if (resolving.has(lookupName)) {
         throw new RuntimeError(`Recursive type '${type.name}' is not supported`, line, column);
     }
 
     resolving.add(lookupName);
-    const resolved = userDefinedTypes.get(type.name.toUpperCase());
-    const resolvedEnum = enumTypes.get(type.name.toUpperCase());
+    const resolved = userDefinedTypes.get(type.name);
+    const resolvedEnum = enumTypes.get(type.name);
     if (resolvedEnum) {
         resolving.delete(lookupName);
         return resolvedEnum;
     }
-    const resolvedSet = setTypes.get(type.name.toUpperCase());
+    const resolvedSet = setTypes.get(type.name);
     if (resolvedSet) {
         resolving.delete(lookupName);
         return resolvedSet;
     }
-    const resolvedPointer = pointerTypes.get(type.name.toUpperCase());
+    const resolvedPointer = pointerTypes.get(type.name);
     if (resolvedPointer) {
         resolving.delete(lookupName);
         return resolvedPointer;

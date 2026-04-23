@@ -31,6 +31,7 @@ import type { IOOperation, IOQueue } from "./io-queue";
 import type { Heap } from "./heap";
 import type { RuntimeFileManager } from "./file-manager";
 import type { DebuggerController, DebugSnapshot } from "./debugger";
+import type { IOInterface } from "../io/io-interface";
 
 export type FrameSyscall =
     | { type: "io_input"; prompt: string }
@@ -54,6 +55,7 @@ export interface FrameContext {
     currentColumn?: number;
     shouldReturn: boolean;
     returnValue: unknown;
+    pendingArgNodes?: ExpressionNode[];
 }
 
 export type Frame =
@@ -62,10 +64,10 @@ export type Frame =
     | { kind: "UnaryOp"; op: string }
     | { kind: "CallArgs"; callee: string; namespace?: string; args: unknown[]; argNodes: ExpressionNode[]; index: number; totalArgs: number; line?: number; column?: number }
     | { kind: "CallOp"; callee: string; namespace?: string; args: unknown[]; line?: number; column?: number }
-    | { kind: "ArrayAccessIndex"; array: ExpressionNode; indices: number[]; index: number; totalIndices: number; line?: number; column?: number }
+    | { kind: "ArrayAccessIndex"; array: ExpressionNode; indexNodes: ExpressionNode[]; indices: number[]; index: number; totalIndices: number; line?: number; column?: number }
     | { kind: "ArrayAccessRead"; address: number }
     | { kind: "MemberAccess"; object: ExpressionNode; field: string; line?: number; column?: number }
-    | { kind: "NewExpressionArgs"; className: string; args: unknown[]; index: number; totalArgs: number; line?: number; column?: number }
+    | { kind: "NewExpressionArgs"; className: string; args: unknown[]; argNodes: ExpressionNode[]; index: number; totalArgs: number; line?: number; column?: number }
     | { kind: "NewExpressionOp"; className: string; args: unknown[]; line?: number; column?: number }
     | { kind: "TypeCast"; targetType: TypeInfo; line?: number; column?: number }
     | { kind: "SetLiteralElements"; elements: ExpressionNode[]; index: number; collected: unknown[]; line?: number; column?: number }
@@ -116,6 +118,7 @@ export interface FrameEvaluatorDeps {
     heap: Heap;
     environment: Environment;
     context: ExecutionContext;
+    io: IOInterface;
     ioQueue: IOQueue;
     fileManager: RuntimeFileManager;
     globalRoutines: Map<string, RoutineInfo>;
