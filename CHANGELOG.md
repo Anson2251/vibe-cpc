@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0-alpha.5] - 2026-08-17
+
+### Added
+- `INPUT` now accepts array elements (`arr2D[row, col]`), member access fields (`user.name`), and pointer dereferences (`p^`) as input targets ([#1](https://github.com/Anson2251/vibe-cpc/issues/1))
+- New `resolveInputTargetType` helper for unified INPUT target type resolution across variable, array element, member access, and pointer dereference targets
+- Extended `assignToTarget` to handle `MemberAccess` and `PointerDereference` targets (matching `performAssignment` semantics), enabling `READFILE` to also assign into record fields and pointer dereferences
+- Five new INPUT tests covering array elements, prompted member access, array-of-record field access, pointer dereference, and type-error rejection
+
 ## [0.1.0-alpha.4] - 2026-04-20
 
 ### Added
