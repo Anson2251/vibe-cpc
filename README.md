@@ -2,6 +2,13 @@
 
 A TypeScript interpreter for the CAIE (Cambridge Assessment International Education) pseudocode language (CPC), designed to be ES2020 compatible and environment-agnostic.
 
+## Disclaimer
+
+> [!IMPORTANT]
+> Vibe CPC is an independent, unofficial open-source project. It has NO affiliation, association, endorsement, or sponsorship relationship of any kind with Cambridge Assessment International Education (CAIE), Cambridge University Press & Assessment, or any other examination body.
+>
+> "CAIE" and "Cambridge Assessment International Education" are trademarks of their respective owners. The CAIE pseudocode specification is referenced solely as an educational resource; this project is NOT endorsed by, connected with, or commissioned by Cambridge Assessment International Education or Cambridge University Press & Assessment.
+
 ## Features
 
 - **Complete CAIE Specification Support**: Implements all language features from the CAIE pseudocode guide
