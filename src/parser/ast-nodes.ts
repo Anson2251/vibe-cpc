@@ -159,7 +159,8 @@ export interface CallStatementNode extends StatementNode {
 export interface InputNode extends StatementNode {
     type: "Input";
     prompt?: ExpressionNode;
-    target: IdentifierNode | ArrayAccessNode; // Identifier or array access
+    // Variable, array element, member access field, or pointer-dereferenced value
+    target: IdentifierNode | ArrayAccessNode | MemberAccessNode | PointerDereferenceNode;
 }
 
 /**

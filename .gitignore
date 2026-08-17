@@ -9,3 +9,5 @@ test-runner-profile-hard/
 
 .DS_Store
 *.tgz
+
+.pnpm-store

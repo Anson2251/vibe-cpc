@@ -288,8 +288,17 @@ export class Parser {
 
     private isInputTargetNode(
         expression: ExpressionNode,
-    ): expression is IdentifierNode | ArrayAccessNode {
-        return expression.type === "Identifier" || expression.type === "ArrayAccess";
+    ): expression is
+        | IdentifierNode
+        | ArrayAccessNode
+        | MemberAccessNode
+        | PointerDereferenceNode {
+        return (
+            expression.type === "Identifier" ||
+            expression.type === "ArrayAccess" ||
+            expression.type === "MemberAccess" ||
+            expression.type === "PointerDereference"
+        );
     }
 
     private isAssignmentTargetNode(

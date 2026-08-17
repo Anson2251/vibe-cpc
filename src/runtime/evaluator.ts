@@ -1217,25 +1217,67 @@ export class Evaluator {
         }
 
         return io("input", promptText, (input: string) => {
-            let targetName = "";
-            if (node.target.type === "Identifier") {
-                targetName = node.target.name;
-            } else {
-                throw new RuntimeError("Invalid input target", node.line, node.column);
+            const targetType = this.resolveInputTargetType(node.target);
+
+            if (targetType === undefined) {
+                throw new RuntimeError(
+                    "Cannot determine type of INPUT target",
+                    node.line,
+                    node.column,
+                );
             }
 
-            const targetType = this.environment.getType(targetName);
             const inputValue = typeof input === "string" ? input : String(input);
             const value = this.convertInput(
                 inputValue,
                 ensurePseudocodeType(targetType, node.line, node.column),
             );
 
-            if (node.target.type === "Identifier") {
-                this.environment.assign(targetName, value);
-            }
+            this.assignToTarget(node.target, value, node.line, node.column);
             return done(undefined);
         });
+    }
+
+    /**
+     * Resolve the declared type of an INPUT target (variable, array element,
+     * member access field, or pointer-dereferenced value).
+     */
+    private resolveInputTargetType(target: ExpressionNode): TypeInfo | undefined {
+        if (isIdentifierNode(target)) {
+            return this.environment.getType(target.name);
+        }
+
+        if (isArrayAccessNode(target)) {
+            return this.resolveArrayAccessType(target);
+        }
+
+        if (isMemberAccessNode(target)) {
+            const declaredParentType = this.resolveMemberPathType(target.object);
+            if (declaredParentType) {
+                const resolved = getRecordField(declaredParentType.fields, target.field);
+                if (resolved === undefined) {
+                    throw new RuntimeError(
+                        `Unknown field '${target.field}' on type '${declaredParentType.name}'`,
+                        target.line,
+                        target.column,
+                    );
+                }
+                return resolved;
+            }
+            // Fallback when the parent type cannot be statically resolved.
+            // Mirrors the default used by performAssignment for member writes.
+            return PseudocodeType.STRING;
+        }
+
+        if (isPointerDereferenceNode(target)) {
+            const pointedType = this.resolvePointedType(target.pointer);
+            if (pointedType !== undefined) {
+                return pointedType;
+            }
+            return PseudocodeType.INTEGER;
+        }
+
+        return undefined;
     }
 
     private evaluateOutputBounce(node: OutputNode): Bounce {
@@ -2185,6 +2227,61 @@ export class Evaluator {
             VariableAtomFactory.validateValue(elementType, value);
 
             this.heap.writeUnsafe(address, value, elementType);
+            return;
+        }
+
+        if (isMemberAccessNode(target)) {
+            const declaredParentType = this.resolveMemberPathType(target.object);
+
+            let fieldType: TypeInfo = PseudocodeType.STRING;
+            if (declaredParentType) {
+                const resolved = getRecordField(declaredParentType.fields, target.field);
+                if (resolved === undefined) {
+                    throw new RuntimeError(
+                        `Unknown field '${target.field}' on type '${declaredParentType.name}'`,
+                        line,
+                        column,
+                    );
+                }
+                fieldType = resolved;
+            }
+
+            VariableAtomFactory.validateValue(fieldType, value);
+
+            const address = this.resolveTargetAddress(target);
+            this.heap.writeUnsafe(address, value, fieldType);
+            return;
+        }
+
+        if (isPointerDereferenceNode(target)) {
+            const ptrValue = this.evaluate(target.pointer);
+            if (ptrValue === null || ptrValue === undefined) {
+                throw new RuntimeError("Null pointer dereference", line, column);
+            }
+            if (typeof ptrValue !== "number") {
+                throw new RuntimeError(
+                    "Cannot dereference non-pointer value",
+                    line,
+                    column,
+                );
+            }
+
+            let targetType: TypeInfo = PseudocodeType.INTEGER;
+            if (isIdentifierNode(target.pointer)) {
+                const ptrType = this.environment.getType(target.pointer.name);
+                if (
+                    typeof ptrType === "object" &&
+                    ptrType !== null &&
+                    "kind" in ptrType &&
+                    ptrType.kind === "POINTER"
+                ) {
+                    targetType = ptrType.pointedType;
+                }
+            }
+
+            VariableAtomFactory.validateValue(targetType, value);
+
+            this.heap.writeUnsafe(ptrValue, value, targetType);
             return;
         }
 
