@@ -559,6 +559,7 @@ export class Parser {
         const column = this.previous().column;
 
         const condition = this.expression();
+        this.skipNewlinesIfFollowedBy(TokenType.THEN);
         this.consume(TokenType.THEN, "Expected 'THEN' after IF condition");
         this.consumeNewline();
 
